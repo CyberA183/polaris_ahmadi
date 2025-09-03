@@ -1,0 +1,10 @@
+numpy
+pandas
+matplotlib
+transformers
+scipy
+torch
+lmfit
+google-generativeai
+python-dotenv
+scikit-learn

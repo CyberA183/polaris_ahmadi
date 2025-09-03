@@ -31,7 +31,14 @@ class ScriptExecutor:
             if self.huggingface_key:
                 env["HUGGINGFACE_API_KEY"] = self.huggingface_key
 
-            result = subprocess.run(["python", temp_script], env=env, capture_output=True, text=True, check=True)
+            # Use the Python interpreter from the virtual environment
+            python_executable = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".venv", "Scripts", "python.exe")
+            if not os.path.exists(python_executable):
+                # Fallback to system python
+                python_executable = "python"
+
+            # Don't use check=True to capture error details
+            result = subprocess.run([python_executable, temp_script], env=env, capture_output=True, text=True, timeout=self.timeout)
 
             logging.debug(f"STDOUT:\n{result.stdout}")
             logging.debug(f"STDERR:\n{result.stderr}")
@@ -39,16 +46,16 @@ class ScriptExecutor:
             if result.returncode == 0:
                 return {"status": "success", "stdout": result.stdout, "stderr": result.stderr}
             else:
-                error_msg = f"Script execution failed with return code: {result.returncode}.\nSTDERR:\n{result.stderr}"
-                return {"status": "error", **error_msg}
-
-        except Exception as e:
-            error_msg = f"Script execution failed with exception: {e}"
-            return {"status": "error", **error_msg}
+                error_msg = f"Script execution failed with return code: {result.returncode}.\nSTDERR:\n{result.stderr}\nSTDOUT:\n{result.stdout}"
+                return {"status": "error", "message": error_msg}
 
         except subprocess.TimeoutExpired:
             error_msg = f"Script execution timed out after {self.timeout} seconds."
-            return {"status": "error", **error_msg}
+            return {"status": "error", "message": error_msg}
+
+        except Exception as e:
+            error_msg = f"Script execution failed with exception: {e}"
+            return {"status": "error", "message": error_msg}
 
         finally:
             os.chdir(original_cwd)
