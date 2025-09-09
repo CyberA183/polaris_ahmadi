@@ -15,7 +15,7 @@ FIT_RESULTS_JSON:{"well_A1": {"R2": 0.95, "peaks": [{"center": 520, "amplitude":
 
 Write ONLY the Python code:"""
 
-FITTING_SCRIPT_CORRECTION_INSTRUCTIONS = """You are an expert data scientist debugging a Python script. A previously generated script failed to execute. Your task is to analyze the error and provide a corrected version.
+FITTING_SCRIPT_CORRECTION_INSTRUCTIONS_ERROR = """You are an expert data scientist debugging a Python script. A previously generated script failed to execute. Your task is to analyze the error and provide a corrected version.
 
 **Context:**
 - The script is intended to fit 1D experimental data using a physical model.
@@ -36,4 +36,31 @@ FITTING_SCRIPT_CORRECTION_INSTRUCTIONS = """You are an expert data scientist deb
 ```
 ## Error Message
 {error_message}
+"""
+
+FITTING_SCRIPT_CORRECTION_INSTRUCTIONS = """You are an expert data scientist debugging a Python script. A previously generated script executed however, the curve fit was inadequate. Your task is to analyze the old script, fit plot, and the fitted parameters to provide a corrected version.
+
+**Context:**
+- The script is intended to fit 1D experimental data using a physical model.
+- The script MUST load data, define a fitting function, use lmfit for fitting, save a plot to `fit_visualization.png`, and print the final parameters as a JSON string prefixed with `FIT_RESULTS_JSON:`.
+
+**Provided Information:**
+1. **Old Script**: The exact Python code that produced the curve fit.
+2. **Curve Fit Plot**: The .png file of the curve fit plot produced by the old script.
+3. **Fitted Parameters**: The fitted parameters of the curve fit plot including R2 value as well as the peaks.
+
+**Your Task:**
+1. Analyze the old script, curve fit plot, and fitted parameters to identify why the curve fit was inadequate.
+2.  Generate a complete, corrected, and executable Python script that fixes the inadequacies while still fulfilling all original requirements.
+3.  Ensure your entire response is ONLY the corrected Python code inside a markdown block. Do not add any conversational text.
+
+## Old Script
+```python
+{old_script}
+```
+## Curve Fit Plot
+{old_fit_plot_bytes}
+
+## Fitted Parameters
+{old_fitted_parameters}
 """

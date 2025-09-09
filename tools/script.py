@@ -7,10 +7,10 @@ import json
 import logging
 
 from matplotlib import pyplot as plt
-from transformers import pipeline
+import transformers
 
 from executor.script_executor import ScriptExecutor
-from .instruct import FITTING_SCRIPT_CORRECTION_INSTRUCTIONS, FITTING_SCRIPT_GENERATION_INSTRUCTIONS
+from tools.instruct import FITTING_SCRIPT_CORRECTION_INSTRUCTIONS_ERROR, FITTING_SCRIPT_GENERATION_INSTRUCTIONS
 
 # Optional Google AI Studio (Gemini) support
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
@@ -40,7 +40,7 @@ def generate_text_with_llm(prompt: str, max_tokens: int = 1500) -> str:
             # fall back to HF below
     # Fallback: Hugging Face transformers local/remote
     try:
-        pipe = pipeline("text-generation", model=HF_MODEL_ID)
+        pipe = transformers.pipeline("text-generation", model=HF_MODEL_ID)
         out = pipe(prompt, max_new_tokens=max_tokens)
         if isinstance(out, list) and out:
             return out[0].get("generated_text", "")
@@ -206,6 +206,7 @@ class CurveFitting:
             
             # Create a focused prompt for peak parameter optimization only
             peak_optimization_prompt = f"""
+            {FITTING_SCRIPT_GENERATION_INSTRUCTIONS}
             Analyze this luminescence data and suggest optimal peak parameters for fitting:
             
             Data Summary:
@@ -473,6 +474,24 @@ print("\\nFIT_RESULTS_JSON:" + json.dumps(output_results))'''
             "last_script":fitting_script
         }
 
+    def request_model_correction(self, old_script, old_fit_plot_bytes, old_fitted_parameters):
+        #Asking LLM to generate a new script with an improved model
+        logging.info("Fit was inadequate. Requesting new model and script correction from LLM...")
+        correction_prompt = FITTING_SCRIPT_GENERATION_INSTRUCTIONS.format(
+            old_script=old_script,
+            old_fit_plot_bytes=old_fit_plot_bytes,
+            old_fitted_parameters=old_fitted_parameters
+        )
+
+        llm_response = generate_text_with_llm(correction_prompt, max_tokens=500)
+        script_content = llm_response.text
+
+        match = re.search(r"```python\n(.*?)\n```", script_content, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        raise ValueError("LLM failed to generate a corrected Python script in a markdown block.")
+
+
     def analyze_curve_fitting(self, data_path: str, comp_path: str) -> dict:
         logging.info(f"Starting curve fitting analysis for: {data_path} and {comp_path}...")
 
@@ -504,13 +523,43 @@ print("\\nFIT_RESULTS_JSON:" + json.dumps(output_results))'''
             with open(fit_plot_path, "rb") as f:
                 fit_plot_bytes = f.read()
 
-            #Add results into dictionary
-            final_result = {"analysis_images": [
-                {"label": "Original Data Plot", "data": original_plot_bytes},
-                {"label": "Fit Visualization", "data": fit_plot_bytes},
-            ], "status": "success", "fitting_parameters": fit_parameters}
+            if fit_parameters["main_well"]["R2"] < 0.2:
+                corrected_script = self.request_model_correction(
+                    old_script=script_execution.get("script_content"),
+                    old_fit_plot_bytes=fit_plot_bytes,
+                    old_fitted_parameters=fit_parameters
+                )
 
-            return final_result
+                corrected_execution = self.executor.execute_script(corrected_script, working_dir=self.output_dir)
+
+                corrected_fit_parameters = {}
+                for line in corrected_execution.get("stdout", "").splitlines():
+                    if line.startswith("FIT_RESULTS_JSON:"):
+                        corrected_fit_parameters = json.loads(line.replace("FIT_RESULTS_JSON:", ""))
+                        break
+                if not corrected_fit_parameters:
+                    raise ValueError("Could not parse fitting parameters from script output")
+
+                corrected_fit_plot_path = os.path.join(self.output_dir, "fit_visualization.png")
+                with open(corrected_fit_plot_path, "rb") as f:
+                    corrected_fit_plot_bytes = f.read()
+
+                corrected_final_result = {"analysis_images": [
+                    {"label": "Original Data Plot", "data": original_plot_bytes},
+                    {"label": "Fit Visualization", "data": corrected_fit_plot_bytes},
+                ], "status": "success", "fitting_parameters": corrected_fit_parameters}
+
+                return corrected_final_result
+
+            else:
+
+                #Add results into dictionary
+                final_result = {"analysis_images": [
+                    {"label": "Original Data Plot", "data": original_plot_bytes},
+                    {"label": "Fit Visualization", "data": fit_plot_bytes},
+                ], "status": "success", "fitting_parameters": fit_parameters}
+
+                return final_result
 
         except Exception as e:
             logging.exception(f"Curve analysis failed with error: {e}")
