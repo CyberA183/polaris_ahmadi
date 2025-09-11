@@ -1,24 +1,25 @@
-FITTING_SCRIPT_GENERATION_INSTRUCTIONS = """ You are an expert data scientist. Your task is to write a Python script to fit a 1D data curve using an appropriate physical model given some parameters.
+FITTING_SCRIPT_GENERATION_INSTRUCTIONS = """Write a Python script to fit multi-peak luminescence data using lmfit.
 
-First, think step by step:
-1. **Analyze the Data Shape:** Visually inspect the curve provided in the prompt. Does it have one peak, multiple peaks? An absorption edge? A combination of features (e.g., peaks on a baseline)
-2. **Select a Model:** Based on your analysis, choose an appropriate model. If there are multiple features, the model MUST be *a sum of multiple functions* (e.g., `gaussian1 + gaussian2 + linear_baseline`)
-3. **Plan the Script:** Plan the full script, including defining the composite model function, making reasonable initial guesses for **all** parameters and calling the fitting routine. Good initial guesses are critical for complex fits to converge.
+REQUIREMENTS:
+1. Use lmfit (from lmfit import Model, GaussianModel, LorentzianModel, ConstantModel)
+2. Import: matplotlib.pyplot, numpy, json, lmfit, pandas
+3. Analyze data for multiple peaks of various shapes
+4. Create composite model with multiple Gaussian/Lorentzian components
+5. Fit all wells and calculate R² values
+6. Re-fit only wells with R² < 0.9
+7. Save plot to 'fit_visualization.png'
+8. Print results as: FIT_RESULTS_JSON:{"well_A1": {"R2": 0.95, "peaks": [{"center": 520, "amplitude": 350, "sigma": 15}]}, "well_B2": {"R2": 0.87, "peaks": [{"center": 680, "amplitude": 20, "sigma": 10}]}}
 
-Then generate a *complete* and *executable* Python script that follows these rules: 
-1. The script MUST include all necessary imports (`matplotlib.pyplot`, `numpy`, `scipy.optimize.curve_fit`, `json`)
-2. The script MUST load data from the specified file path.
-3. The script MUST define the chosen fitting function(s). For multiple features, this should be a composite function (e.g., `def double_gaussian(x, a1, c1, s1, a2, c2, s2): return gaussian(x, a1, c1, s1) + gaussian(x, a2, c2, s2)`).
-4.  The script MUST perform the fit using `scipy.optimize.curve_fit`.
-5.  The script MUST save a plot of the data and the complete fit (including all components) to a file named `fit_visualization.png`.
-6.  **CRITICALLY**: After saving the plot, the script MUST print the final, optimized parameters for **all components** to standard output as a JSON string on a single line, prefixed with `FIT_RESULTS_JSON:`.
-7.  Your entire response must be ONLY the Python code. Do NOT add any conversational text or explanations outside of the code itself. """
+EXAMPLE OUTPUT:
+FIT_RESULTS_JSON:{"well_A1": {"R2": 0.95, "peaks": [{"center": 520, "amplitude": 350, "sigma": 15}]}}
 
-FITTING_SCRIPT_CORRECTION_INSTRUCTIONS = """You are an expert data scientist debugging a Python script. A previously generated script failed to execute. Your task is to analyze the error and provide a corrected version.
+Write ONLY the Python code:"""
+
+FITTING_SCRIPT_CORRECTION_INSTRUCTIONS_ERROR = """You are an expert data scientist debugging a Python script. A previously generated script failed to execute. Your task is to analyze the error and provide a corrected version.
 
 **Context:**
 - The script is intended to fit 1D experimental data using a physical model.
-- The script MUST load data, define a fitting function, use `scipy.optimize.curve_fit`, save a plot to `fit_visualization.png`, and print the final parameters as a JSON string prefixed with `FIT_RESULTS_JSON:`.
+- The script MUST load data, define a fitting function, use lmfit for fitting, save a plot to `fit_visualization.png`, and print the final parameters as a JSON string prefixed with `FIT_RESULTS_JSON:`.
 
 **Provided Information:**
 1.  **Failed Script**: The exact Python code that produced the error.
@@ -35,4 +36,31 @@ FITTING_SCRIPT_CORRECTION_INSTRUCTIONS = """You are an expert data scientist deb
 ```
 ## Error Message
 {error_message}
+"""
+
+FITTING_SCRIPT_CORRECTION_INSTRUCTIONS = """You are an expert data scientist debugging a Python script. A previously generated script executed however, the curve fit was inadequate. Your task is to analyze the old script, fit plot, and the fitted parameters to provide a corrected version.
+
+**Context:**
+- The script is intended to fit 1D experimental data using a physical model.
+- The script MUST load data, define a fitting function, use lmfit for fitting, save a plot to `fit_visualization.png`, and print the final parameters as a JSON string prefixed with `FIT_RESULTS_JSON:`.
+
+**Provided Information:**
+1. **Old Script**: The exact Python code that produced the curve fit.
+2. **Curve Fit Plot**: The .png file of the curve fit plot produced by the old script.
+3. **Fitted Parameters**: The fitted parameters of the curve fit plot including R2 value as well as the peaks.
+
+**Your Task:**
+1. Analyze the old script, curve fit plot, and fitted parameters to identify why the curve fit was inadequate.
+2.  Generate a complete, corrected, and executable Python script that fixes the inadequacies while still fulfilling all original requirements.
+3.  Ensure your entire response is ONLY the corrected Python code inside a markdown block. Do not add any conversational text.
+
+## Old Script
+```python
+{old_script}
+```
+## Curve Fit Plot
+{old_fit_plot_bytes}
+
+## Fitted Parameters
+{old_fitted_parameters}
 """
