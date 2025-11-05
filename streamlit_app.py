@@ -113,12 +113,12 @@ with bottom:
 
     with options_col:
         with st.popover("⚙️ Options"):
-            st.markdown("### Conversation Controls")
+            st.markdown("#### Conversation Controls")
             st.button("🔄 Restart", use_container_width=True, on_click=clear_conversation)
             st.button("🧠 Stop & Create Hypothesis", use_container_width=True, on_click=stop_and_create_hypothesis)
             st.button("⏪ Go Back", use_container_width=True, on_click=go_back_stage)
             st.markdown("---")
-            st.markdown("### Export Data")
+            st.markdown("#### Export Data")
 
             json_data, text_data = export_message_history()
             if json_data and text_data:
@@ -175,21 +175,24 @@ if st.session_state.stage == "initial":
                 cl_question, soc_pass, thoughts_gen = initial_process(question)
                 first_thought, second_thought, third_thought = thoughts_gen
 
-        st.markdown("**Clarified Question:**")
-        st.markdown({cl_question})
-        st.markdown("**Socratic Pass:**")
-        st.markdown({soc_pass})
-        st.markdown("**Generated Thoughts:**")
-        st.markdown(first_thought)
-        st.markdown(second_thought)
-        st.markdown(third_thought)
+            st.markdown("**Clarified Question:**")
+            st.markdown(cl_question)
+            st.markdown("**Socratic Pass:**")
+            st.markdown(soc_pass)
+            st.markdown("Generated Thoughts:")
+            st.markdown(first_thought)
+            st.markdown(second_thought)
+            st.markdown(third_thought)
 
         insert_interaction("user", question, "initial_question")
+        insert_interaction("assistant", "**Clarified Question:**", "cl_question_header")
         insert_interaction("assistant", cl_question, "clarified_question")
+        insert_interaction("assistant", "**Socratic Pass:**", "soc_pass_header")
         insert_interaction("assistant", soc_pass, "socratic_pass")
-        insert_interaction("assistant", first_thought, "first_thought_1")
-        insert_interaction("assistant", second_thought, "second_thought_1")
-        insert_interaction("assistant", third_thought, "third_thought_1")
+        insert_interaction("assistant", "**Generated Thoughts:**", "generated_thoughts_header")
+        insert_interaction("assistant", f"**Thought 1:** {first_thought}", "first_thought_1")
+        insert_interaction("assistant", f"**Thought 2:** {second_thought}", "second_thought_1")
+        insert_interaction("assistant", f"**Thought 3:** {third_thought}", "third_thought_1")
 
         st.session_state.stage = "refine"
         st.rerun()
@@ -228,15 +231,15 @@ elif st.session_state.stage == "refine":
 
             st.markdown("**Socratic Question:**")
             st.markdown(soc_q)
-            st.markdown("**Next-Step Options:**")
             for opt in options:
                 st.markdown(opt)
 
         insert_interaction("user", user_choice, "tot_choice")
+        insert_interaction("assistant", "**Socratic Question:**", "retry_thinking_question_header")
         insert_interaction("assistant", soc_q, "retry_thinking_question")
-        insert_interaction("assistant", options[0], "next_step_option_1")
-        insert_interaction("assistant", options[1], "next_step_option_2")
-        insert_interaction("assistant", options[2], "next_step_option_3")
+        insert_interaction("assistant", f"**Option 1:** {options[0]}", "next_step_option_1")
+        insert_interaction("assistant", f"**Option 2:** {options[1]}", "next_step_option_2")
+        insert_interaction("assistant", f"**Option 3:** {options[2]}", "next_step_option_3")
 
         st.session_state.stage = "hypothesis"
         st.rerun()
@@ -271,7 +274,6 @@ elif st.session_state.stage == "hypothesis":
                 soc_q = view_component("retry_thinking_question")
                 hypothesis = socratic.hypothesis_synthesis(soc_q, picked, prev1, prev2)
 
-            st.markdown("**Hypothesis:**")
             st.markdown(hypothesis)
 
         insert_interaction("user", user_choice_2, "retry_thinking_choice")
