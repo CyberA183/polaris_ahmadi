@@ -1,5 +1,8 @@
 import streamlit as st
 import json
+
+from transformers.models.tapas.tokenization_tapas import Question
+
 import tools.socratic as socratic
 from datetime import datetime
 
@@ -34,7 +37,6 @@ def view_component(component):
     for i in st.session_state.interactions:
         if i["component"] == component:
             return i["message"]
-    return None
 
 def clear_conversation():
     st.session_state.interactions = []
@@ -101,7 +103,7 @@ with chat_container:
         with st.chat_message(i["role"]):
             st.markdown(i["message"])
 
-st.markdown("<br><br><br><br>", unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
 
 # --- Bottom Controls ---
 bottom = st.container()
@@ -161,6 +163,7 @@ if st.session_state.stop_hypothesis and st.session_state.stage != "analysis":
 
 # --- NORMAL STAGES ---
 if st.session_state.stage == "initial":
+    st.write("Welcome to the hypothesis agent! Please enter a question that you would like to explore further.")
     with chat_col:
         question = st.chat_input("Ask a question...")
     if question:
@@ -172,12 +175,14 @@ if st.session_state.stage == "initial":
                 cl_question, soc_pass, thoughts_gen = initial_process(question)
                 first_thought, second_thought, third_thought = thoughts_gen
 
-            st.markdown(f"**Clarified Question:** {cl_question}")
-            st.markdown(f"**Socratic Pass:** {soc_pass}")
-            st.markdown("**Generated Thoughts:**")
-            st.markdown(first_thought)
-            st.markdown(second_thought)
-            st.markdown(third_thought)
+        st.markdown("**Clarified Question:**")
+        st.markdown({cl_question})
+        st.markdown("**Socratic Pass:**")
+        st.markdown({soc_pass})
+        st.markdown("**Generated Thoughts:**")
+        st.markdown(first_thought)
+        st.markdown(second_thought)
+        st.markdown(third_thought)
 
         insert_interaction("user", question, "initial_question")
         insert_interaction("assistant", cl_question, "clarified_question")
@@ -190,6 +195,7 @@ if st.session_state.stage == "initial":
         st.rerun()
 
 elif st.session_state.stage == "refine":
+    st.write("You are presented with three lines of distinct thoughts. Please choose the option that explores your initial question best.")
     with chat_col:
         user_choice = st.chat_input("Make a choice 1, 2, or 3...")
     if user_choice:
@@ -220,7 +226,9 @@ elif st.session_state.stage == "refine":
                     picked, prev1, prev2, initial_question
                 )
 
+            st.markdown("**Socratic Question:**")
             st.markdown(soc_q)
+            st.markdown("**Next-Step Options:**")
             for opt in options:
                 st.markdown(opt)
 
@@ -234,6 +242,7 @@ elif st.session_state.stage == "refine":
         st.rerun()
 
 elif st.session_state.stage == "hypothesis":
+    st.write(st.write("You are presented with three next-step options. Please choose the option that explores your initial question best."))
     with chat_col:
         user_choice_2 = st.chat_input("Pick a next-step choice 1, 2, or 3...")
     if user_choice_2:
@@ -262,6 +271,7 @@ elif st.session_state.stage == "hypothesis":
                 soc_q = view_component("retry_thinking_question")
                 hypothesis = socratic.hypothesis_synthesis(soc_q, picked, prev1, prev2)
 
+            st.markdown("**Hypothesis:**")
             st.markdown(hypothesis)
 
         insert_interaction("user", user_choice_2, "retry_thinking_choice")
