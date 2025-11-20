@@ -11,3 +11,4 @@ scikit-learn
 streamlit
 futurehouse-client
 edison-client
+requests
