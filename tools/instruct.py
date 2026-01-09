@@ -384,6 +384,7 @@ RETRY_THINKING_INSTRUCTIONS = """ You are generating continuation questions usin
    Distinct Line of Thought 2: [How question probing the selected option]
    Distinct Line of Thought 3: [What/What if/Comparison question probing the selected option]
 
+   
    Do NOT include:
    - Experimental procedures or testing protocols
    - Any "Reasoning:" sections
@@ -391,6 +392,7 @@ RETRY_THINKING_INSTRUCTIONS = """ You are generating continuation questions usin
    - Any headings
    - Any conversational text
 
+   
    Start directly with "Distinct Line of Thought 1:" and end with "Distinct Line of Thought 3:".
 
 ## Line of Thought

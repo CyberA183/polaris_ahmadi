@@ -13,6 +13,11 @@ GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 FUTUREHOUSE_API_KEY = os.getenv("FUTUREHOUSE_API_KEY")
 GOOGLE_MODEL_ID = "gemini-2.5-flash-lite"
 
+# Log API key status on import (first 10 chars only) - but only if API key exists
+if GOOGLE_API_KEY:
+    logging.info(f"API key loaded from environment on module import (starts with: {GOOGLE_API_KEY[:10]}...)")
+else:
+    logging.warning("No API key found in environment on module import. Will check again at runtime.")
 
 def _lazy_import_genai():
     """Lazy import of google.generativeai to speed up module loading"""
@@ -40,6 +45,11 @@ def _lazy_import_instructions():
                                 TOT_INSTRUCTIONS, RETRY_THINKING_INSTRUCTIONS, HYPOTHESIS_SYNTHESIS,
                                 HYPOTHESIS_ANALYSIS_REPORT,
                                 EXPERIMENTAL_PLAN_TOT_INSTRUCTIONS)
+def _lazy_import_instructions():
+    """Lazy import of instruction constants"""
+    from tools.instruct import (CLARIFY_QUESTION_INSTRUCTIONS, SOCRATIC_PASS_INSTRUCTIONS, SOCRATIC_ANSWER_INSTRUCTIONS,
+                               TOT_INSTRUCTIONS, RETRY_THINKING_INSTRUCTIONS, HYPOTHESIS_SYNTHESIS, HYPOTHESIS_ANALYSIS_REPORT,
+                               EXPERIMENTAL_PLAN_TOT_INSTRUCTIONS)
     return (CLARIFY_QUESTION_INSTRUCTIONS, SOCRATIC_PASS_INSTRUCTIONS, SOCRATIC_ANSWER_INSTRUCTIONS, TOT_INSTRUCTIONS,
             RETRY_THINKING_INSTRUCTIONS, HYPOTHESIS_SYNTHESIS, HYPOTHESIS_ANALYSIS_REPORT,
             EXPERIMENTAL_PLAN_TOT_INSTRUCTIONS)
@@ -72,6 +82,11 @@ def generate_text_with_llm(prompt: str) -> str:
         
         if not api_key and hasattr(generate_text_with_llm, '_cached_api_key'):
             # Check cached key (updated by UI)
+        # Get the latest API key - check in order: module variable, environment variables
+        # This ensures we get the most up-to-date key (from UI updates)
+        api_key = None
+        if hasattr(generate_text_with_llm, '_cached_api_key'):
+            # Check cached key first (updated by UI)
             api_key = generate_text_with_llm._cached_api_key
 
         if not api_key:
@@ -83,109 +98,28 @@ def generate_text_with_llm(prompt: str) -> str:
             api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
         if not api_key:
-            error_msg = "API key not found. Please set GOOGLE_API_KEY or GEMINI_API_KEY environment variable, or enter it in the UI (Settings)."
+            error_msg = "API key not found. Please set GOOGLE_API_KEY or GEMINI_API_KEY environment variable, or enter it in the UI (Options)."
             logging.error(error_msg)
             raise ValueError(error_msg)
 
         # Log model and key status (first 10 chars only for security)
-        logging.info(
-            f"Using model: {GOOGLE_MODEL_ID}, API key present: {bool(api_key)} (starts with: {api_key[:10] if len(api_key) > 10 else 'N/A'}...)")
+        logging.info(f"Using model: {GOOGLE_MODEL_ID}, API key present: {bool(api_key)} (starts with: {api_key[:10] if len(api_key) > 10 else 'N/A'}...)")
 
         # Lazy import genai only when needed
         genai = _lazy_import_genai()
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(GOOGLE_MODEL_ID)
+        response = model.generate_content(prompt)
         
-        # Log prompt length for debugging
-        logging.info(f"Generating content with prompt length: {len(prompt)}")
-        logging.info(f"Prompt preview (first 200 chars): {prompt[:200]}...")
-        
-        try:
-            response = model.generate_content(prompt)
-            logging.info(f"Response received. Type: {type(response)}")
-        except Exception as e:
-            logging.error(f"Error calling model.generate_content: {e}")
-            logging.error(f"Error type: {type(e).__name__}")
-            import traceback
-            logging.error(f"Traceback: {traceback.format_exc()}")
-            raise ValueError(f"Failed to generate content: {str(e)}")
-
         if not response:
             logging.error("Empty response from model")
             raise ValueError("Empty response from model")
-
-        # Handle different response formats from Gemini API
-        text = None
         
-        # Try direct .text attribute (older/newer API versions)
-        if hasattr(response, 'text') and response.text:
-            text = response.text
-        # Try candidates structure (newer API format)
-        elif hasattr(response, 'candidates') and response.candidates:
-            candidate = response.candidates[0]
-            if hasattr(candidate, 'content') and candidate.content:
-                if hasattr(candidate.content, 'parts') and candidate.content.parts:
-                    text_parts = []
-                    for part in candidate.content.parts:
-                        if hasattr(part, 'text') and part.text:
-                            text_parts.append(part.text)
-                    if text_parts:
-                        text = ''.join(text_parts)
-                elif hasattr(candidate.content, 'text'):
-                    text = candidate.content.text
+        if not hasattr(response, 'text') or not response.text:
+            logging.error(f"No text in response. Response object: {response}")
+            raise ValueError("No text in model response")
         
-        # Check for blocked content or safety issues
-        if not text and hasattr(response, 'prompt_feedback'):
-            feedback = response.prompt_feedback
-            if hasattr(feedback, 'block_reason') and feedback.block_reason:
-                reason = feedback.block_reason
-                logging.error(f"Content blocked by safety filters: {reason}")
-                raise ValueError(f"Content was blocked by safety filters. Reason: {reason}")
-        
-        # Check candidates for block reasons
-        if not text and hasattr(response, 'candidates') and response.candidates:
-            candidate = response.candidates[0]
-            if hasattr(candidate, 'finish_reason'):
-                finish_reason = candidate.finish_reason
-                if finish_reason and finish_reason != 'STOP':
-                    logging.error(f"Generation finished with reason: {finish_reason}")
-                    if finish_reason in ['SAFETY', 'RECITATION', 'OTHER']:
-                        raise ValueError(f"Content generation was stopped. Reason: {finish_reason}")
-        
-        if not text:
-            # Log full response for debugging
-            logging.error(f"No text found in response. Response type: {type(response)}")
-            logging.error(f"Response attributes: {dir(response)}")
-            
-            # Try to get more details about why text extraction failed
-            if hasattr(response, 'candidates'):
-                logging.error(f"Number of candidates: {len(response.candidates) if response.candidates else 0}")
-                if response.candidates:
-                    for i, candidate in enumerate(response.candidates):
-                        logging.error(f"Candidate {i}: {candidate}")
-                        if hasattr(candidate, 'finish_reason'):
-                            logging.error(f"  Finish reason: {candidate.finish_reason}")
-                        if hasattr(candidate, 'safety_ratings'):
-                            logging.error(f"  Safety ratings: {candidate.safety_ratings}")
-                        if hasattr(candidate, 'content'):
-                            logging.error(f"  Content: {candidate.content}")
-                            
-            if hasattr(response, 'prompt_feedback'):
-                logging.error(f"Prompt feedback: {response.prompt_feedback}")
-                if hasattr(response.prompt_feedback, 'block_reason'):
-                    logging.error(f"  Block reason: {response.prompt_feedback.block_reason}")
-                if hasattr(response.prompt_feedback, 'safety_ratings'):
-                    logging.error(f"  Safety ratings: {response.prompt_feedback.safety_ratings}")
-            
-            # Try one more time with a simpler extraction
-            try:
-                if hasattr(response, '__dict__'):
-                    logging.error(f"Response __dict__: {response.__dict__}")
-            except:
-                pass
-                
-            raise ValueError("No text in model response. The response may have been blocked or filtered. Check logs for details.")
-
+        text = response.text
         logging.info(f"Successfully generated text (length: {len(text)})")
         return text
     except ValueError as e:
@@ -198,7 +132,6 @@ def generate_text_with_llm(prompt: str) -> str:
         logging.error(f"Full traceback: {traceback.format_exc()}")
         raise
 
-
 def clarify_question(question: str) -> str:
     """Clarifying question given by user """
     try:
@@ -206,7 +139,7 @@ def clarify_question(question: str) -> str:
         instructions = _lazy_import_instructions()
         CLARIFY_QUESTION_INSTRUCTIONS = instructions[0]
 
-        # Creating prompt for clarified question
+        #Creating prompt for clarified question
         clarified_question_prompt = f"""
         {CLARIFY_QUESTION_INSTRUCTIONS}
 
@@ -251,26 +184,25 @@ def socratic_pass(clarified_question_response: str) -> str:
     except Exception as e:
         logging.error(f"SOCRATIC pass failed: {e}")
 
-
 def socratic_answer_questions(clarified_question: str, probing_questions: str) -> str:
     """LLM answers the probing questions it previously asked itself, building deeper reasoning"""
-    print("\n" + "=" * 80)
+    print("\n" + "="*80)
     print("DEBUG: INSIDE socratic_answer_questions")
     print(f"  clarified_question length: {len(clarified_question)}")
     print(f"  probing_questions length: {len(probing_questions)}")
-    print("=" * 80 + "\n")
+    print("="*80 + "\n")
     try:
         # Pre-process probing questions to remove "Reasoning:" sections
         # This helps ensure the LLM focuses on answering the questions, not explaining why they were asked
         # Split by question patterns first, then clean each question
         import re
-
+        
         # Pattern to match questions (lines that end with "?" and don't start with "Reasoning")
         question_pattern = r'^[^R].*\?'
-
+        
         # Split into blocks - each question followed by its reasoning
         blocks = re.split(r'\n(?=\w)', probing_questions)  # Split on newline followed by word char
-
+        
         cleaned_questions = []
         for block in blocks:
             lines = block.split('\n')
@@ -289,13 +221,13 @@ def socratic_answer_questions(clarified_question: str, probing_questions: str) -
                 # Add question lines
                 if line_stripped and not line_stripped.lower().startswith('reasoning'):
                     question_lines.append(line_stripped)
-
+            
             if question_lines:
                 cleaned_questions.append('\n'.join(question_lines))
-
+        
         # Join back together
         cleaned_questions_text = '\n\n'.join(cleaned_questions)
-
+        
         # If we removed everything, fall back to original (shouldn't happen, but safety check)
         if not cleaned_questions_text.strip():
             cleaned_questions_text = probing_questions
@@ -304,11 +236,11 @@ def socratic_answer_questions(clarified_question: str, probing_questions: str) -
             logging.info(f"Cleaned probing questions (removed Reasoning sections)")
             logging.info(f"  Original length: {len(probing_questions)}, Cleaned length: {len(cleaned_questions_text)}")
             logging.info(f"  First 300 chars of cleaned: {cleaned_questions_text[:300]}...")
-
+        
         # Lazy import instructions
         instructions = _lazy_import_instructions()
         SOCRATIC_ANSWER_INSTRUCTIONS = instructions[2]  # SOCRATIC_ANSWER_INSTRUCTIONS is now at index 2
-
+        
         socratic_answer_prompt = f"""
 {SOCRATIC_ANSWER_INSTRUCTIONS}
 
@@ -316,18 +248,18 @@ User Question: {clarified_question}
 
 Probing Questions: {cleaned_questions_text}
 """
-
+        
         logging.info("Constructed socratic answer prompt")
         logging.info(f"  Prompt length: {len(socratic_answer_prompt)}")
         logging.info(f"  Instructions length: {len(SOCRATIC_ANSWER_INSTRUCTIONS)}")
         logging.info(f"  First 300 chars of full prompt: {socratic_answer_prompt[:300]}...")
-
+        
         logging.info("Generating answers to socratic questions...")
         logging.info(f"  Clarified question length: {len(clarified_question)}")
         logging.info(f"  Probing questions length: {len(probing_questions)}")
         logging.info(f"  Cleaned questions length: {len(cleaned_questions_text)}")
         logging.info(f"  Cleaned questions preview: {cleaned_questions_text[:500]}...")
-
+        
         try:
             llm_response = generate_text_with_llm(socratic_answer_prompt)
             logging.info(f"LLM call completed successfully")
@@ -336,7 +268,7 @@ Probing Questions: {cleaned_questions_text}
             import traceback
             logging.error(f"Traceback: {traceback.format_exc()}")
             return None
-
+        
         logging.info(f"Raw LLM response received (length: {len(llm_response) if llm_response else 0})")
         if llm_response:
             logging.info(f"  First 500 chars of raw response: {llm_response[:500]}...")
@@ -344,7 +276,7 @@ Probing Questions: {cleaned_questions_text}
             logging.error("LLM returned None or empty response")
             logging.error("  This is unusual - the LLM should return something, even if it's an error message")
             return None
-
+        
         if llm_response:
             # CRITICAL: Check if LLM generated a hypothesis report instead of answers
             if "Hypothesis Report" in llm_response or "Hypothesis Evaluation Report" in llm_response:
@@ -353,7 +285,7 @@ Probing Questions: {cleaned_questions_text}
                 logging.error("  TEMPORARILY ALLOWING THIS THROUGH SO USER CAN SEE IT")
                 # TEMP: Don't return None, let it through so user can see what's happening
                 # return None
-
+            
             # Check for novelty/plausibility/testability which indicates a hypothesis report
             if "Novelty:" in llm_response or "Plausibility:" in llm_response or "Testability:" in llm_response:
                 logging.error("LLM response contains hypothesis report markers (Novelty/Plausibility/Testability)")
@@ -361,7 +293,7 @@ Probing Questions: {cleaned_questions_text}
                 logging.error("  TEMPORARILY ALLOWING THIS THROUGH SO USER CAN SEE IT")
                 # TEMP: Don't return None, let it through so user can see what's happening
                 # return None
-
+            
             # Check if LLM is just restating reasoning instead of answering
             # Look for patterns that indicate it's explaining why questions were asked
             reasoning_patterns = [
@@ -374,57 +306,55 @@ Probing Questions: {cleaned_questions_text}
                 "reasoning:",
                 "the reasoning behind"
             ]
-
+            
             response_lower = llm_response.lower()
             reasoning_count = sum(1 for pattern in reasoning_patterns if pattern in response_lower)
-
+            
             if reasoning_count >= 3:  # If multiple reasoning patterns found, likely not answering
-                logging.warning(
-                    f"LLM response contains {reasoning_count} reasoning patterns - may be explaining why questions were asked instead of answering")
+                logging.warning(f"LLM response contains {reasoning_count} reasoning patterns - may be explaining why questions were asked instead of answering")
                 logging.warning(f"  First 500 chars: {llm_response[:500]}...")
                 # Don't return None - let it through but log warning
                 # The instructions should handle this, but we want to track it
                 # Still return the response so user can see what happened
-
+            
             # Additional validation: Check if response actually answers questions vs just restating reasoning
             # Look for actual answers (specific materials, mechanisms, examples)
             answer_indicators = [
-                "include", "examples include", "such as", "specifically",
+                "include", "examples include", "such as", "specifically", 
                 "functional groups", "molecular", "classes of", "types of",
                 "coordination", "interactions", "binding", "properties"
             ]
             answer_count = sum(1 for indicator in answer_indicators if indicator.lower() in response_lower)
-
+            
             if reasoning_count >= 3 and answer_count < 2:
                 logging.error(f"LLM response appears to be restating reasoning instead of answering!")
                 logging.error(f"  Reasoning patterns: {reasoning_count}, Answer indicators: {answer_count}")
                 logging.error(f"  First 500 chars: {llm_response[:500]}...")
                 # Still return it, but log the issue - the instructions should handle this
-
+            
             logging.info(f"Generated socratic answers (length: {len(llm_response)})")
             logging.info(f"  First 500 chars: {llm_response[:500]}...")
             logging.info(f"  Contains reasoning patterns: {reasoning_count}, Answer indicators: {answer_count}")
-
+            
             # Final validation - if it looks like it's just restating reasoning, log but still return
             if reasoning_count >= 3 and answer_count < 2:
                 logging.warning("WARNING: Response may be restating reasoning instead of answering")
-                logging.warning(
-                    "  Reasoning patterns: {0}, Answer indicators: {1}".format(reasoning_count, answer_count))
+                logging.warning("  Reasoning patterns: {0}, Answer indicators: {1}".format(reasoning_count, answer_count))
                 logging.warning("  BUT still returning it so user can see what was generated")
         else:
             logging.error("Empty response from socratic answer generation")
             logging.error("  This means socratic answers will not be displayed")
             logging.error("  Returning None - fallback will use probing questions directly")
-
-        print("\n" + "=" * 80)
+            
+        print("\n" + "="*80)
         print("DEBUG: RETURNING from socratic_answer_questions")
         print(f"  Return value is None: {llm_response is None}")
         print(f"  Return value type: {type(llm_response)}")
         if llm_response:
             print(f"  Return value length: {len(llm_response)}")
             print(f"  First 300 chars: {llm_response[:300]}")
-        print("=" * 80 + "\n")
-
+        print("="*80 + "\n")
+        
         logging.info("=" * 80)
         logging.info(f"RETURNING from socratic_answer_questions")
         logging.info(f"  Return value is None: {llm_response is None}")
@@ -432,21 +362,19 @@ Probing Questions: {cleaned_questions_text}
         if llm_response:
             logging.info(f"  Return value length: {len(llm_response)}")
         logging.info("=" * 80)
-
+        
         return llm_response
-
+        
     except Exception as e:
-        print("\n" + "=" * 80)
+        print("\n" + "="*80)
         print(f"DEBUG: EXCEPTION in socratic_answer_questions: {e}")
-        print("=" * 80 + "\n")
+        print("="*80 + "\n")
         logging.error(f"SOCRATIC answer generation failed: {e}")
         import traceback
         logging.error(f"Traceback: {traceback.format_exc()}")
         return None
 
-
-def tot_generation_experimental_plan(socratic_pass_questioning: str, clarified_question: str,
-                                     experimental_constraints: str) -> list:
+def tot_generation_experimental_plan(socratic_pass_questioning: str, clarified_question: str, experimental_constraints: str) -> list:
     """LLM produces three distinct experimental plans given constraints"""
     try:
         # Lazy import instructions
@@ -484,7 +412,7 @@ def tot_generation_experimental_plan(socratic_pass_questioning: str, clarified_q
                     clean_plan = re.sub(r'^[-•]\s*', '', clean_plan)
                     if clean_plan and len(clean_plan) > 20:
                         plans.append(clean_plan)
-
+            
             if not plans:
                 sentences = re.split(r'(?<=[.!?])\s+', llm_response)
                 plans = [s.strip() for s in sentences if len(s.strip()) > 30][:3]
@@ -521,6 +449,11 @@ def tot_generation(socratic_pass_questioning: str, clarified_question: str, socr
         User Question: {clarified_question}
         Socratic Answers: {reasoning_context}
         """
+        
+        if socratic_answers:
+            logging.info(f"Generating TOT with socratic answers (length: {len(socratic_answers)})...")
+        else:
+            logging.info(f"Generating TOT with probing questions (answers not available)...")
 
         if socratic_answers:
             logging.info(f"Generating TOT with socratic answers (length: {len(socratic_answers)})...")
@@ -533,6 +466,20 @@ def tot_generation(socratic_pass_questioning: str, clarified_question: str, socr
             llm_response = " ".join(llm_response)  # combine if list
         elif llm_response is None:
             llm_response = ""  # avoid NoneType error
+        
+        # CRITICAL: Check if LLM generated a hypothesis report instead of thoughts
+        if llm_response and ("Hypothesis Report" in llm_response or "Hypothesis Evaluation Report" in llm_response):
+            logging.error("LLM generated a hypothesis report instead of TOT thoughts!")
+            logging.error("  This should not happen - the LLM should only generate 3 thoughts")
+            # Return empty list to trigger fallback
+            return []
+        
+        # Check for novelty/plausibility/testability which indicates a hypothesis report
+        if llm_response and ("Novelty:" in llm_response or "Plausibility:" in llm_response or "Testability:" in llm_response):
+            logging.error("LLM response contains hypothesis report markers (Novelty/Plausibility/Testability)")
+            logging.error("  This should not happen - the LLM should only generate 3 thoughts")
+            # Return empty list to trigger fallback
+            return []
 
         # CRITICAL: Check if LLM generated a hypothesis report instead of thoughts
         if llm_response and ("Hypothesis Report" in llm_response or "Hypothesis Evaluation Report" in llm_response):
