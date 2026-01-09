@@ -62,4 +62,3 @@ class ScriptExecutor:
             if temp_script and os.path.exists(temp_script):
                 os.remove(temp_script)
 
-
