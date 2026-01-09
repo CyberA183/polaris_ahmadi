@@ -5,15 +5,16 @@ import numpy as np
 import pandas as pd
 import json
 import logging
+import streamlit as st
 
 from matplotlib import pyplot as plt
 import transformers
 
-from executor.script_executor import ScriptExecutor
-from tools.instruct import FITTING_SCRIPT_CORRECTION_INSTRUCTIONS_ERROR, FITTING_SCRIPT_GENERATION_INSTRUCTIONS
+from tools.script_executor import ScriptExecutor
+from tools.instruct import FITTING_SCRIPT_GENERATION_INSTRUCTIONS
 
 # Optional Google AI Studio (Gemini) support
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+GOOGLE_API_KEY = st.session_state.api_key
 LLM_PROVIDER = (os.environ.get("LLM_PROVIDER") or "google").lower()  # 'google' or 'hf'
 GOOGLE_MODEL_ID = os.environ.get("GOOGLE_MODEL_ID") or "gemini-1.5-flash"
 HF_MODEL_ID = os.environ.get("HF_MODEL_ID") or "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
@@ -75,7 +76,10 @@ class CurveFitting:
 
     #Loading in the .csv files
     def load_data(self, data_path: str, comp_path: str):
-        if data_path.endswith(".csv") & comp_path.endswith(".csv"):
+        data_path = data_path.strip().strip('"').strip("'")
+        comp_path = comp_path.strip().strip('"').strip("'")
+
+        if data_path.endswith(".csv") and comp_path.endswith(".csv"):
             data = pd.read_csv(data_path, header=None)
             data = data.replace("OVRFLW", np.nan)
 
@@ -197,6 +201,17 @@ class CurveFitting:
         plt.close(fig)
 
         return image_bytes
+
+    def plot_data_stream(self, curve_data, title_suffix=""):
+        fig, ax = plt.subplots(figsize=(6, 3))
+        ax.plot(curve_data)
+        ax.set_title("1D Data" + title_suffix)
+        ax.set_xlabel("X-axis")
+        ax.set_ylabel("Y-axis")
+        ax.grid(True, linestyle='--')
+        plt.tight_layout()
+
+        return fig
 
 
     def generate_fitting_script(self, curve_data, x, y, data_path: str) -> str:

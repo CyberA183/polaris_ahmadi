@@ -12,3 +12,10 @@ streamlit
 futurehouse-client
 edison-client
 requests
+watchdog
+reportlab
+psutil
+plotly
+kaleido
+fastapi
+uvicorn

@@ -383,6 +383,7 @@ RETRY_THINKING_INSTRUCTIONS = """ You are generating continuation questions usin
    Distinct Line of Thought 1: [Why question probing the selected option]
    Distinct Line of Thought 2: [How question probing the selected option]
    Distinct Line of Thought 3: [What/What if/Comparison question probing the selected option]
+
    
    Do NOT include:
    - Experimental procedures or testing protocols
@@ -390,6 +391,7 @@ RETRY_THINKING_INSTRUCTIONS = """ You are generating continuation questions usin
    - Any explanatory text
    - Any headings
    - Any conversational text
+
    
    Start directly with "Distinct Line of Thought 1:" and end with "Distinct Line of Thought 3:".
 
@@ -410,6 +412,7 @@ HYPOTHESIS_SYNTHESIS = """ You are a careful research assistant analyzing a give
 1. **Socratic Question:** A clarified question developed from a distinct line of thought that the next-step options are based on.
 2. **Next-Step Option:** The option selected by the user, which should be analyzed, explored further, and used to generate a hypothesis.
 3. **Previous Options:** A list of next-step options that were not selected by the user.
+4. **Full Conversation Context:** The entire conversation flow, builds upon all the questions, thoughts, and options discussed throughout the conversation.
 
 **Your Task:**
 1. Analyze the Socratic question and next-step option for their core scientific ideas, underlying mechanisms, theoretical foundations, evidence, terminology, and relevant scientific context.
@@ -457,6 +460,20 @@ HYPOTHESIS_SYNTHESIS = """ You are a careful research assistant analyzing a give
 ## Previous Step Options
 {previous_step_option_1}
 {previous_step_option_2}
+
+## Full Conversation Context
+{conversation_context}
+
+IMPORTANT: Please synthesize a hypothesis that considers full conversation context. The hypothesis should integrate insights from the full discussion, not just the most recent option.
+
+**ADDITIONAL REQUIREMENTS FOR SCIENTIFIC DETAIL:**
+- The hypothesis MUST include scientific reasoning, underlying mechanisms, and theoretical background explaining WHY the expected outcome is predicted
+- The hypothesis MUST include specific materials (e.g., chemical names, formulas, concentrations) with scientific justification
+- The predictions MUST include quantifiable outcomes (e.g., specific values, ranges, or measurable changes) with scientific justification for why these specific predictions follow from the hypothesis
+- The tests MUST specify characterization techniques and measurement methods, focusing on WHAT will be measured and WHY it matters scientifically, not just procedural steps
+- The hypothesis should connect to broader scientific understanding and include clear logical connections between hypothesis, predictions, and tests
+- Avoid vague terms like "improve", "optimize", "enhance" - use specific, measurable criteria with scientific rationale
+- Each section should be comprehensive and detailed, providing sufficient scientific depth and context
 """
 
 HYPOTHESIS_ANALYSIS_REPORT = """ You are a careful research assistant analyzing a hypothesis on a set of criteria and previous research. Your task is to generate a report grading the hypothesis.
@@ -474,4 +491,68 @@ HYPOTHESIS_ANALYSIS_REPORT = """ You are a careful research assistant analyzing 
 
 ## Socratic Question
 {socratic_question}
+"""
+
+WATCHER_ROUTING_INSTRUCTIONS = """You are a routing controller for a lab-assistant application that watches filesystem events and decides which agent should run next.
+
+**Context:**
+- A filesystem event has been detected (file created/modified)
+- You need to determine which agent is most appropriate to handle this event based on the file type, content, and current workflow state
+
+**Available Agents:**
+{agent_names}
+
+**Current State:**
+- Filesystem Event: {event_description}
+- Trigger File: {trigger_file}
+- Uploaded Files: {uploaded_files}
+- Last Hypothesis: {last_hypothesis}
+- Experimental Outputs: {experimental_outputs}
+- Experimental Constraints: {experimental_constraints}
+
+**Your Task:**
+1. Analyze the filesystem event and current state
+2. Determine which single agent from the list above should run next
+3. Consider:
+   - File type and naming patterns (e.g., output_from_hypothesis.json → Experiment Agent)
+   - Current workflow state (hypothesis ready? experiment complete?)
+   - Available data and context
+   - Logical next step in the research workflow
+
+**Response Format:**
+Return ONLY the exact name of the chosen agent from the list above, with no explanation, no formatting, no additional text.
+
+Example responses:
+- "Hypothesis Agent"
+- "Experiment Agent"
+- "Curve Fitting"
+"""
+
+HYPOTHESIS_READINESS_CHECK = """You are evaluating whether enough information has been gathered to synthesize a scientific hypothesis.
+
+**Context:**
+- A user has been exploring a research question through multiple rounds of Socratic questioning and thought exploration
+- You need to determine if sufficient information exists to create a well-formed hypothesis
+
+**Current Conversation State:**
+- Clarified Question: {clarified_question}
+- Socratic Questions: {socratic_questions}
+- Number of Exploration Rounds: {round_count}
+- Current Selected Option: {selected_option}
+- Previous Options Explored: {previous_options}
+
+**Your Task:**
+1. Evaluate if enough information has been gathered to synthesize a hypothesis
+2. Consider:
+   - Has the core question been sufficiently explored?
+   - Are there specific materials, mechanisms, or approaches identified?
+   - Has enough reasoning been developed to support a hypothesis?
+   - Have multiple perspectives been considered?
+
+**Response Format:**
+Return ONLY one of the following:
+- "READY" if sufficient information exists to create a hypothesis
+- "NOT_READY" if more exploration is needed
+
+Do not provide explanations, just the single word response.
 """
