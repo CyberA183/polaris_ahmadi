@@ -31,15 +31,25 @@ with general:
 
         if st.button("Edit API Key"):
             st.session_state.editing = True
+            # Clear the input field when entering edit mode
+            if "api_key_input" in st.session_state:
+                del st.session_state.api_key_input
             st.rerun()
 
     else:
+        # Show current status
+        if st.session_state.get('api_key_source') == 'environment':
+            st.info("📝 Currently using API key from environment variables. Click 'Edit API Key' to set a custom one.")
+        elif st.session_state.get('api_key_source') == 'secrets':
+            st.info("📝 Currently using API key from Streamlit secrets. Click 'Edit API Key' to set a custom one.")
+
         api_key_input = st.text_input(
             "Google Gemini API Key:",
-            value=st.session_state.api_key,
+            value="" if st.session_state.editing else st.session_state.get('api_key', ''),
             type="password",
-            help="Please enter your Google Gemini API key here. Your key is only stored for this session.",
+            help="Enter your Google Gemini API key. It will be saved securely and persist across page navigations.",
             key="api_key_input",
+            placeholder="Enter your API key here..." if st.session_state.editing else None,
         )
 
         col1, col2 = st.columns(2)
@@ -51,7 +61,16 @@ with general:
                     st.session_state.api_key = api_key
                     st.session_state.api_key_source = "user"
                     st.session_state.editing = False
-                    st.success("Your API key has been saved successfully.")
+                    # Also save to environment variable for persistence across page navigations
+                    os.environ['GEMINI_API_KEY'] = api_key
+                    # Try to save to .env file for persistence across app restarts
+                    try:
+                        env_path = Path(__file__).parent.parent / '.env'
+                        with open(env_path, 'w') as f:
+                            f.write(f'GEMINI_API_KEY={api_key}\n')
+                    except Exception:
+                        pass  # Ignore if we can't write to .env file
+                    st.success("Your API key has been saved successfully!")
                     st.rerun()
                 else:
                     st.error("Please enter your API key and try again.")

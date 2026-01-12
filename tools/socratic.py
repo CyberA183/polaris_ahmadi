@@ -67,35 +67,47 @@ def _lazy_import_given_vars():
 def generate_text_with_llm(prompt: str) -> str:
     """Generating text using Gemini provided model and API Key"""
     try:
-        # Get the latest API key - check in order: session state, cached key, module variable, environment variables
-        # This ensures we get the most up-to-date key (from UI updates)
+        # Get the latest API key - check in order: environment variables (most reliable), session state, cached key, module variable
+        # Environment variables are most reliable for cross-page persistence
         api_key = None
-        
-        # First check session state (most up-to-date from UI)
-        try:
-            import streamlit as st
-            if hasattr(st, 'session_state') and hasattr(st.session_state, 'api_key'):
-                api_key = st.session_state.get('api_key')
-        except (RuntimeError, AttributeError):
-            # Not in Streamlit context, continue to other checks
-            pass
-        
-        if not api_key and hasattr(generate_text_with_llm, '_cached_api_key'):
-            # Check cached key (updated by UI)
-        # Get the latest API key - check in order: module variable, environment variables
-        # This ensures we get the most up-to-date key (from UI updates)
-        api_key = None
-        if hasattr(generate_text_with_llm, '_cached_api_key'):
+
+        # First check environment variables (most reliable for persistence)
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        # Also try loading from .env file if available
+        if not api_key:
+            try:
+                from dotenv import load_dotenv
+                from pathlib import Path
+                # Try loading from project root
+                env_path = Path(__file__).parent.parent / '.env'
+                load_dotenv(env_path)
+                api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            except (ImportError, Exception):
+                pass  # dotenv not available or file not found, continue
+
+        # Then check session state (may have been updated in UI)
+        if not api_key:
+            try:
+                import streamlit as st
+                if hasattr(st, 'session_state') and hasattr(st.session_state, 'api_key'):
+                    api_key = st.session_state.get('api_key')
+            except (RuntimeError, AttributeError):
+                # Not in Streamlit context, continue to other checks
+                pass
+
+        # If still no key, check fallback sources
+        if not api_key:
             # Check cached key first (updated by UI)
-            api_key = generate_text_with_llm._cached_api_key
+            if hasattr(generate_text_with_llm, '_cached_api_key'):
+                api_key = generate_text_with_llm._cached_api_key
 
-        if not api_key:
             # Check module-level variable (may have been updated)
-            api_key = GOOGLE_API_KEY
+            if not api_key:
+                api_key = GOOGLE_API_KEY
 
-        if not api_key:
-            # Check environment variables (last resort)
-            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            # Check module-level variable (last resort)
+            if not api_key:
+                api_key = GOOGLE_API_KEY
 
         if not api_key:
             error_msg = "API key not found. Please set GOOGLE_API_KEY or GEMINI_API_KEY environment variable, or enter it in the UI (Options)."
@@ -103,7 +115,15 @@ def generate_text_with_llm(prompt: str) -> str:
             raise ValueError(error_msg)
 
         # Log model and key status (first 10 chars only for security)
-        logging.info(f"Using model: {GOOGLE_MODEL_ID}, API key present: {bool(api_key)} (starts with: {api_key[:10] if len(api_key) > 10 else 'N/A'}...)")
+        logging.info(f"Using model: {GOOGLE_MODEL_ID}, API key present: {bool(api_key)} (starts with: {api_key[:10] if api_key and len(api_key) > 10 else 'N/A'}...)")
+
+        # Validate API key format (Gemini keys are typically 39 characters starting with specific patterns)
+        if api_key and not (api_key.startswith(('AIza', 'AIzaSy')) and len(api_key) > 30):
+            logging.warning(f"API key format looks unusual. Expected Gemini API key format. Key starts with: {api_key[:10] if api_key else 'None'}...")
+
+        # CRITICAL: Check if API key is actually valid before proceeding
+        if not api_key or not api_key.strip():
+            raise ValueError("API key is empty or None. Please set your Google Gemini API key in Settings.")
 
         # Lazy import genai only when needed
         genai = _lazy_import_genai()

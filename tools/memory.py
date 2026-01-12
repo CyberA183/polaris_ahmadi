@@ -65,23 +65,25 @@ class MemoryManager:
             if key not in st.session_state:
                 st.session_state[key] = value
 
-        env_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        # Only set API key from environment/secrets if user hasn't manually set one
+        if "api_key_source" not in st.session_state or st.session_state.api_key_source != "user":
+            env_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
 
-        # If we have an API key from environment, use it automatically
-        if env_key:
-            # Set in session state
-            st.session_state.api_key = env_key
-            st.session_state.api_key_source = "environment"
-            # Ensure environment variables are set
-            os.environ["GOOGLE_API_KEY"] = env_key
-            os.environ["GEMINI_API_KEY"] = env_key
+            # If we have an API key from environment, use it automatically
+            if env_key:
+                # Set in session state
+                st.session_state.api_key = env_key
+                st.session_state.api_key_source = "environment"
+                # Ensure environment variables are set
+                os.environ["GOOGLE_API_KEY"] = env_key
+                os.environ["GEMINI_API_KEY"] = env_key
 
-        elif "api_key" not in st.session_state or len(st.session_state.api_key) == 0:
-            # Check if API Key is in secrets
-            api_key = st.secrets.get("GEMINI_API_KEY")
-            if api_key:
-                st.session_state.api_key = api_key
-                st.session_state.api_key_source = "secrets"
+            elif "api_key" not in st.session_state or len(st.session_state.api_key) == 0:
+                # Check if API Key is in secrets
+                api_key = st.secrets.get("GEMINI_API_KEY")
+                if api_key:
+                    st.session_state.api_key = api_key
+                    st.session_state.api_key_source = "secrets"
                 os.environ["GEMINI_API_KEY"] = api_key
                 os.environ["GOOGLE_API_KEY"] = api_key
         else:
@@ -201,13 +203,19 @@ class MemoryManager:
         (e.g. seeing which parameters were active when an agent ran).
         """
         serialisable = {}
+        skipped_keys = []
         for k, v in st.session_state.items():
             try:
                 # Only keep JSON‑serialisable entries
                 json.dumps(v)
                 serialisable[k] = v
-            except TypeError:
+            except (TypeError, ValueError) as e:
+                # Skip non-serializable objects (including circular references)
+                skipped_keys.append(f"{k} ({type(v).__name__}: {str(e)[:50]}...)")
                 continue
+
+        if skipped_keys:
+            logging.debug(f"Skipped non-serializable session state keys: {skipped_keys}")
 
         self.log_event(
             "session_state",

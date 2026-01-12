@@ -32,6 +32,8 @@ class HypothesisAgent(BaseAgent):
             
             if not st.session_state.api_key:
                 st.warning("Please enter your API key in Settings before continuing.")
+                st.info("**Make sure you're using a Google Gemini API key, not an OpenAI key.**")
+                st.info("Get your Gemini API key from: https://makersuite.google.com/app/apikey")
                 st.stop()
 
             # Validate question input
@@ -51,7 +53,13 @@ class HypothesisAgent(BaseAgent):
                 st.stop()
 
             if not clarified_question or not clarified_question.strip():
-                st.error("Could not generate clarified question. The LLM returned an empty response. Please check your API key and try again.")
+                st.error("Could not generate clarified question. The LLM returned an empty response.")
+                st.warning("**Possible causes:**")
+                st.warning("1. Invalid or expired Google Gemini API key")
+                st.warning("2. Using OpenAI API key instead of Gemini key")
+                st.warning("3. API quota exceeded")
+                st.warning("4. Network connectivity issues")
+                st.info("Get your Gemini API key from: https://makersuite.google.com/app/apikey")
                 st.stop()
 
             # Generate socratic questions
