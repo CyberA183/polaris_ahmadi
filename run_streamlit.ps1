@@ -16,7 +16,8 @@ Write-Host ""
 
 # Choose which app to run (uncomment the one you want)
 # $streamlitFile = Join-Path $scriptDir "streamlit_app.py"        # Regular version
-$streamlitFile = Join-Path $scriptDir "streamlit_app_clean.py"  # Clean multi-page version
+$streamlitFile = Join-Path $scriptDir "streamlit_app_minimal.py"  # Minimal test version - USE THIS TO TEST
+# $streamlitFile = Join-Path $scriptDir "streamlit_app_clean.py"  # Clean multi-page version
 
 # Fallback to regular version if clean version doesn't exist
 if (-not (Test-Path $streamlitFile)) {
