@@ -1,11 +1,22 @@
 Set WshShell = CreateObject("WScript.Shell")
-Set objShell = CreateObject("Shell.Application")
+Set fso = CreateObject("Scripting.FileSystemObject")
 
 ' Get the script directory
-strScriptDir = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName)
+strScriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 
-' Create shortcut on desktop using WshShell
+' Get desktop path - try multiple methods
 strDesktop = WshShell.SpecialFolders("Desktop")
+If strDesktop = "" Then
+    ' Fallback: use environment variable
+    strDesktop = WshShell.ExpandEnvironmentStrings("%USERPROFILE%\Desktop")
+End If
+If strDesktop = "" Then
+    ' Last resort: use shell object
+    Set objShell = CreateObject("Shell.Application")
+    strDesktop = objShell.Namespace("shell:Desktop").Self.Path
+End If
+
+' Create shortcut
 Set objShortCut = WshShell.CreateShortcut(strDesktop & "\POLARIS Hypothesis Agent.lnk")
 
 ' Configure shortcut
