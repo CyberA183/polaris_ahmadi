@@ -9,7 +9,7 @@ lmfit
 google-generativeai
 python-dotenv
 scikit-learn
-streamlit
+streamlit>=1.36.0
 futurehouse-client
 edison-client
 requests
