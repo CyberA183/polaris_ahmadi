@@ -10,9 +10,9 @@ st.set_page_config(layout="centered")
 st.title("🧪 Experiment Agent")
 
 # Show context when coming from Analysis Agent with GP/compositions
-gp_suggested = st.session_state.get("gp_suggested_compositions", [])
-analysis_recs = st.session_state.get("analysis_recommendations", [])
-analysis_report = st.session_state.get("analysis_full_report", "")
+gp_suggested = memory.get_var("gp_suggested_compositions", [])
+analysis_recs = memory.get_var("analysis_recommendations", [])
+analysis_report = memory.get_var("analysis_full_report", "")
 if gp_suggested or analysis_recs or analysis_report:
     with st.expander("📋 From Analysis Agent (Curve Fitting + GP)", expanded=True):
         if analysis_report:
@@ -31,9 +31,9 @@ if gp_suggested or analysis_recs or analysis_report:
             st.dataframe(comp_df, use_container_width=True)
             # Generate worklist CSV from compositions and offer Jupyter upload
             if st.button("Generate Worklist from GP Compositions & Upload to Jupyter", use_container_width=True):
-                jupyter_cfg = st.session_state.get("jupyter_config", {})
+                jupyter_cfg = memory.get_var("jupyter_config", {})
                 if jupyter_cfg.get("upload_enabled") and jupyter_cfg.get("server_url"):
-                    max_vol = st.session_state.experimental_constraints.get("liquid_handling", {}).get("max_volume_per_mixture", 50)
+                    max_vol = memory.get_var("experimental_constraints", {}).get("liquid_handling", {}).get("max_volume_per_mixture", 50)
                     materials = list(gp_suggested[0].get("compositions", {}).keys()) if gp_suggested else []
                     if materials:
                         wells = [f"A{i+1:02d}" for i in range(min(len(gp_suggested), 12))]
@@ -55,7 +55,7 @@ if gp_suggested or analysis_recs or analysis_report:
                         w.writerows(rows)
                         csv_content = buf.getvalue()
                         from agents.experiment_agent import ExperimentAgent
-                        agent = ExperimentAgent("Experiment Agent", "", st.session_state.experimental_constraints)
+                        agent = ExperimentAgent("Experiment Agent", "", memory.get_var("experimental_constraints", {}))
                         success, msg = agent.upload_to_jupyter(
                             jupyter_cfg["server_url"],
                             jupyter_cfg.get("token", ""),
@@ -76,10 +76,9 @@ if gp_suggested or analysis_recs or analysis_report:
 st.markdown("Use the controls below to configure experimental constraints or trigger the agent directly.")
 
 def _run_experiment_agent() -> None:
-    # Increment usage metrics
-    st.session_state.agent_usage_counts["experiment"] = (
-        st.session_state.agent_usage_counts.get("experiment", 0) + 1
-    )
+    counts = memory.get_var("agent_usage_counts", {})
+    counts["experiment"] = counts.get("experiment", 0) + 1
+    memory.set_var("agent_usage_counts", counts)
 
     # Snapshot current session state for history/analytics
     memory.snapshot_session_state("before_experiment_agent_run")
@@ -88,7 +87,7 @@ def _run_experiment_agent() -> None:
     agent = ExperimentAgent(
         name="Experiment Agent",
         desc="Generates experimental plans and automation artifacts from the current hypothesis and constraints.",
-        params_const=st.session_state.experimental_constraints,
+        params_const=memory.get_var("experimental_constraints", {}),
     )
     agent.run_agent(memory)
 
@@ -98,14 +97,14 @@ with st.expander("📝 Manual Input (Optional - Use if no hypothesis available)"
     
     manual_clarified_question = st.text_area(
         "Clarified Question:",
-        value=st.session_state.get("manual_clarified_question", ""),
+        value=memory.get_var("manual_clarified_question", ""),
         placeholder="e.g., How can we optimize the phase stability of perovskite materials?",
         help="The clarified research question"
     )
     
     manual_socratic_questions = st.text_area(
         "Socratic Questions (Probing Questions):",
-        value=st.session_state.get("manual_socratic_questions", ""),
+        value=memory.get_var("manual_socratic_questions", ""),
         placeholder="e.g., What specific mechanisms contribute to phase instability?\nWhat role do organic cations play?\nHow do temperature and humidity affect phase transitions?",
         help="3-5 probing questions that explore the research question",
         height=150
@@ -113,7 +112,7 @@ with st.expander("📝 Manual Input (Optional - Use if no hypothesis available)"
     
     manual_socratic_answers = st.text_area(
         "Socratic Answers (Optional):",
-        value=st.session_state.get("manual_socratic_answers", ""),
+        value=memory.get_var("manual_socratic_answers", ""),
         placeholder="Detailed answers to the probing questions above",
         help="Optional: Answers to the probing questions for deeper context",
         height=150
@@ -121,7 +120,7 @@ with st.expander("📝 Manual Input (Optional - Use if no hypothesis available)"
     
     manual_thoughts = st.text_area(
         "Three Lines of Thought (Optional):",
-        value=st.session_state.get("manual_thoughts", ""),
+        value=memory.get_var("manual_thoughts", ""),
         placeholder="Distinct Line of Thought 1: [First approach]\nDistinct Line of Thought 2: [Second approach]\nDistinct Line of Thought 3: [Third approach]",
         help="Optional: Three distinct lines of thought or mini-hypotheses",
         height=150
@@ -129,7 +128,7 @@ with st.expander("📝 Manual Input (Optional - Use if no hypothesis available)"
     
     manual_hypothesis = st.text_area(
         "Hypothesis (Optional):",
-        value=st.session_state.get("manual_hypothesis", ""),
+        value=memory.get_var("manual_hypothesis", ""),
         placeholder="A detailed hypothesis statement with predictions and tests",
         help="Optional: A full hypothesis statement",
         height=150
@@ -137,11 +136,11 @@ with st.expander("📝 Manual Input (Optional - Use if no hypothesis available)"
     
     # Save manual inputs to session state
     if st.button("Save Manual Inputs", use_container_width=True):
-        st.session_state.manual_clarified_question = manual_clarified_question
-        st.session_state.manual_socratic_questions = manual_socratic_questions
-        st.session_state.manual_socratic_answers = manual_socratic_answers
-        st.session_state.manual_thoughts = manual_thoughts
-        st.session_state.manual_hypothesis = manual_hypothesis
+        memory.set_var("manual_clarified_question", manual_clarified_question)
+        memory.set_var("manual_socratic_questions", manual_socratic_questions)
+        memory.set_var("manual_socratic_answers", manual_socratic_answers)
+        memory.set_var("manual_thoughts", manual_thoughts)
+        memory.set_var("manual_hypothesis", manual_hypothesis)
         st.success("Manual inputs saved!")
         st.rerun()
 
@@ -152,7 +151,7 @@ with st.expander("⚙️ Experimental Parameters and Constraints", expanded=Fals
         "Experimental Techniques:",
         ["in-situ PL", "spin coating", "absorbance spectroscopy", "XRD", "SEM", "TEM", "UV-Vis",
          "photoluminescence", "time-resolved PL", "impedance spectroscopy"],
-        default=st.session_state.experimental_constraints.get("techniques", [])
+        default=memory.get_var("experimental_constraints", {}).get("techniques", [])
     )
 
     # Equipment
@@ -160,7 +159,7 @@ with st.expander("⚙️ Experimental Parameters and Constraints", expanded=Fals
         "Available Equipment:",
         ["spin bot", "pipetting robot", "glove box", "solar simulator", "spectrometer", "microscope",
          "thermal evaporator", "spin coater", "Tecan liquid handler", "Opentrons liquid handler"],
-        default=st.session_state.experimental_constraints.get("equipment", [])
+        default=memory.get_var("experimental_constraints", {}).get("equipment", [])
     )
 
     # Liquid Handling Configuration
@@ -170,7 +169,7 @@ with st.expander("⚙️ Experimental Parameters and Constraints", expanded=Fals
     with col_lh1:
         # Instruments multiselect - ensure no duplicates
         available_instruments = ["Tecan", "Opentrons", "manual pipettes", "multichannel pipettes"]
-        current_instruments = st.session_state.experimental_constraints.get("liquid_handling", {}).get("instruments", [])
+        current_instruments = memory.get_var("experimental_constraints", {}).get("liquid_handling", {}).get("instruments", [])
         # Remove duplicates from current instruments
         current_instruments = list(dict.fromkeys(current_instruments))  # Preserves order, removes duplicates
 
@@ -186,7 +185,7 @@ with st.expander("⚙️ Experimental Parameters and Constraints", expanded=Fals
             "Plate Format:",
             ["96-well", "384-well", "24-well"],
             index=["96-well", "384-well", "24-well"].index(
-                st.session_state.experimental_constraints.get("liquid_handling", {}).get("plate_format", "96-well"))
+                memory.get_var("experimental_constraints", {}).get("liquid_handling", {}).get("plate_format", "96-well"))
         )
 
     with col_lh2:
@@ -194,14 +193,14 @@ with st.expander("⚙️ Experimental Parameters and Constraints", expanded=Fals
             "Max Volume per Mixture (µL):",
             min_value=10,
             max_value=200,
-            value=st.session_state.experimental_constraints.get("liquid_handling", {}).get("max_volume_per_mixture", 50)
+            value=memory.get_var("experimental_constraints", {}).get("liquid_handling", {}).get("max_volume_per_mixture", 50)
         )
 
         # Materials input - allow typing and adding custom materials
         st.markdown("**Available Materials:**")
 
         # Show current materials as chips
-        current_materials = st.session_state.experimental_constraints.get("liquid_handling", {}).get("materials", [])
+        current_materials = memory.get_var("experimental_constraints", {}).get("liquid_handling", {}).get("materials", [])
         if current_materials:
             # Display as chips/badges
             material_chips = " ".join([f"`{mat}`" for mat in current_materials])
@@ -229,7 +228,9 @@ with st.expander("⚙️ Experimental Parameters and Constraints", expanded=Fals
             # Add if not already in list (case-insensitive check)
             if material_to_add.lower() not in [m.lower() for m in materials]:
                 materials.append(material_to_add)
-                st.session_state.experimental_constraints["liquid_handling"]["materials"] = materials
+                ec = memory.get_var("experimental_constraints", {})
+                ec.setdefault("liquid_handling", {})["materials"] = materials
+                memory.set_var("experimental_constraints", ec)
                 st.success(f"Added: {material_to_add}")
                 st.rerun()
             else:
@@ -245,7 +246,9 @@ with st.expander("⚙️ Experimental Parameters and Constraints", expanded=Fals
                 if st.button(f"+ {preset}", key=f"add_preset_{preset}", use_container_width=True):
                     if preset.lower() not in [m.lower() for m in materials]:
                         materials.append(preset)
-                        st.session_state.experimental_constraints["liquid_handling"]["materials"] = materials
+                        ec = memory.get_var("experimental_constraints", {})
+                        ec.setdefault("liquid_handling", {})["materials"] = materials
+                        memory.set_var("experimental_constraints", ec)
                         st.rerun()
                     else:
                         st.warning(f"'{preset}' already added")
@@ -259,12 +262,14 @@ with st.expander("⚙️ Experimental Parameters and Constraints", expanded=Fals
                 with remove_cols[col_idx]:
                     if st.button(f"❌ {mat}", key=f"remove_{mat}", use_container_width=True):
                         materials.remove(mat)
-                        st.session_state.experimental_constraints["liquid_handling"]["materials"] = materials
+                        ec = memory.get_var("experimental_constraints", {})
+                        ec.setdefault("liquid_handling", {})["materials"] = materials
+                        memory.set_var("experimental_constraints", ec)
                         st.rerun()
 
         csv_path = st.text_input(
             "CSV File Path (for Opentrons):",
-            value=st.session_state.experimental_constraints.get("liquid_handling", {}).get("csv_path",
+            value=memory.get_var("experimental_constraints", {}).get("liquid_handling", {}).get("csv_path",
                                                                                        "/var/lib/jupyter/notebooks/Dual GP 5AVA BDA/"),
             help="Path where CSV file will be stored on Opentrons robot"
         )
@@ -274,7 +279,7 @@ with st.expander("⚙️ Experimental Parameters and Constraints", expanded=Fals
             "Key Parameters to Optimize:",
             ["spin speed", "concentration", "temperature", "humidity", "annealing time", "layer thickness",
              "mixing ratio", "deposition rate"],
-            default=st.session_state.experimental_constraints.get("parameters", [])
+            default=memory.get_var("experimental_constraints", {}).get("parameters", [])
         )
 
         # Focus Areas
@@ -282,12 +287,12 @@ with st.expander("⚙️ Experimental Parameters and Constraints", expanded=Fals
             "Primary Focus Areas:",
             ["device performance", "material stability", "process optimization", "characterization", "scaling",
              "cost reduction"],
-            default=st.session_state.experimental_constraints.get("focus_areas", [])
+            default=memory.get_var("experimental_constraints", {}).get("focus_areas", [])
         )
 
         # Save button (replaces form submit)
         if st.button("Save Constraints and Parameters", type="primary", use_container_width=True):
-            st.session_state.experimental_constraints = {
+            memory.set_var("experimental_constraints", {
                 "techniques": techniques,
                 "equipment": equipment,
                 "parameters": parameters,
@@ -299,7 +304,7 @@ with st.expander("⚙️ Experimental Parameters and Constraints", expanded=Fals
                     "materials": list(dict.fromkeys(materials)),  # Ensure no duplicates
                     "csv_path": csv_path if csv_path else "/var/lib/jupyter/notebooks/Dual GP 5AVA BDA/"
                 }
-            }
+            })
             st.success("Parameters and constraints saved!")
             st.rerun()
 
@@ -376,23 +381,21 @@ if st.button("Run Experiment Agent", type="primary", use_container_width=True):
 
 # Workflow auto-run: execute experiment once when routed here
 if (
-    st.session_state.get("workflow_active")
-    and st.session_state.get("workflow_step") == "experiment"
-    and not st.session_state.get("workflow_experiment_started")
+    memory.get_var("workflow_active")
+    and memory.get_var("workflow_step") == "experiment"
+    and not memory.get_var("workflow_experiment_started")
 ):
-    st.session_state.workflow_experiment_started = True
+    memory.set_var("workflow_experiment_started", True)
     _run_experiment_agent()
 
 # Workflow transition: offer manual Continue (no auto-switch)
 if (
-    st.session_state.get("workflow_active")
-    and st.session_state.get("experimental_outputs")
+    memory.get_var("workflow_active")
+    and memory.get_var("experimental_outputs")
 ):
-    st.session_state.workflow_experiment_outputs = (
-        st.session_state.experimental_outputs
-    )
-    st.session_state.workflow_experiment_completed = True
-    st.session_state.workflow_step = "curve_fitting"
+    memory.set_var("workflow_experiment_outputs", memory.get_var("experimental_outputs"))
+    memory.set_var("workflow_experiment_completed", True)
+    memory.set_var("workflow_step", "curve_fitting")
     st.divider()
     if st.button("Continue to Curve Fitting →", type="primary", use_container_width=True, key="exp_continue_curve"):
         st.switch_page("pages/curve_fitting.py")

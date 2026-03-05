@@ -44,9 +44,9 @@ class AnalysisAgent(BaseAgent):
         # High confidence if GP or Monte Carlo results exist (can analyze goal + ML only)
         try:
             import streamlit as st
-            gp_results = st.session_state.get("gp_results")
-            mc_results = st.session_state.get("monte_carlo_results")
-            research_goal = st.session_state.get("research_goal", "")
+            gp_results = self.memory.get_var("gp_results")
+            mc_results = self.memory.get_var("monte_carlo_results")
+            research_goal = self.memory.get_var("research_goal", "")
             if (gp_results or mc_results) and research_goal:
                 return 0.85
         except (ImportError, RuntimeError, AttributeError):
@@ -58,12 +58,12 @@ class AnalysisAgent(BaseAgent):
             hypothesis = self.memory.view_component("hypothesis")
             if not hypothesis:
                 try:
-                    hypothesis = st.session_state.get("last_hypothesis")
+                    hypothesis = self.memory.get_var("last_hypothesis")
                 except (RuntimeError, AttributeError):
                     hypothesis = None
             experimental_outputs = None
             try:
-                experimental_outputs = st.session_state.get("experimental_outputs")
+                experimental_outputs = self.memory.get_var("experimental_outputs")
             except (RuntimeError, AttributeError):
                 pass
         except (ImportError, RuntimeError):
@@ -80,7 +80,7 @@ class AnalysisAgent(BaseAgent):
         """Retrieve curve fitting results from files or session state."""
         # Try to get from session state first
         if hasattr(st.session_state, 'curve_fitting_results'):
-            return st.session_state.curve_fitting_results
+            return self.memory.get_var("curve_fitting_results")
         
         # Try to find results JSON files in results directory
         results_dir = "results"
@@ -100,14 +100,14 @@ class AnalysisAgent(BaseAgent):
     
     def _get_gp_results(self) -> Optional[Dict[str, Any]]:
         """Retrieve Gaussian Process model results from session state."""
-        return st.session_state.get("gp_results")
+        return self.memory.get_var("gp_results")
     
     def _get_hypothesis_context(self) -> str:
         """Build context string from hypothesis agent outputs."""
         context_parts = []
         
         # Get hypothesis
-        hypothesis = self.memory.view_component("hypothesis") or st.session_state.get("last_hypothesis")
+        hypothesis = self.memory.view_component("hypothesis") or self.memory.get_var("last_hypothesis")
         if hypothesis:
             context_parts.append(f"**Hypothesis:**\n{hypothesis}\n")
         
@@ -125,7 +125,7 @@ class AnalysisAgent(BaseAgent):
     
     def _get_experimental_context(self) -> str:
         """Build context string from experimental agent outputs."""
-        experimental_outputs = st.session_state.get("experimental_outputs")
+        experimental_outputs = self.memory.get_var("experimental_outputs")
         if not experimental_outputs:
             return "No experimental data available."
         
@@ -429,7 +429,7 @@ class AnalysisAgent(BaseAgent):
         """Render UI and handle analysis agent interactions."""
         
         # Check for API key
-        if not st.session_state.get("api_key"):
+        if not memory.get_var("api_key"):
             st.warning("Please enter your API key in Settings before continuing.")
             st.stop()
 
@@ -438,15 +438,15 @@ class AnalysisAgent(BaseAgent):
         st.subheader("🎯 Research Goal")
         research_goal = st.text_area(
             "Enter your overall research goal:",
-            value=st.session_state.get("research_goal", ""),
+            value=memory.get_var("research_goal", ""),
             height=100,
             help="This goal will guide the generation of new research questions and experiment recommendations.",
             key="research_goal_input"
         )
-        st.session_state.research_goal = research_goal
+        memory.set_var("research_goal", research_goal)
         
         # Experiment Memory Display
-        experiment_memory = get_experiment_memory()
+        experiment_memory = get_experiment_memory(memory)
         with st.expander("📚 Completed Experiments Memory", expanded=False):
             exp_summary = experiment_memory.get_experiment_summary()
             st.markdown(exp_summary)
@@ -463,7 +463,7 @@ class AnalysisAgent(BaseAgent):
         gp_results = self._get_gp_results()
         
         # Get Monte Carlo results
-        monte_carlo_results = st.session_state.get("monte_carlo_results")
+        monte_carlo_results = memory.get_var("monte_carlo_results")
         
         # Display context
         with st.expander("📋 Context Information", expanded=False):
@@ -497,7 +497,7 @@ class AnalysisAgent(BaseAgent):
                     st.write(f"- Max: {uncertainty_stats.get('max', 0):.4f}")
         
         # Display Monte Carlo Decision Tree results if available
-        monte_carlo_results = st.session_state.get("monte_carlo_results")
+        monte_carlo_results = memory.get_var("monte_carlo_results")
         if monte_carlo_results:
             with st.expander("🌳 ML Model Results (Monte Carlo Decision Tree)", expanded=True):
                 stats = monte_carlo_results.get("optimization_stats", {})
@@ -590,7 +590,7 @@ class AnalysisAgent(BaseAgent):
             st.markdown(gp_summary)
         
         # Add Monte Carlo Decision Tree results if available
-        monte_carlo_results = st.session_state.get("monte_carlo_results")
+        monte_carlo_results = memory.get_var("monte_carlo_results")
         if monte_carlo_results:
             monte_carlo_summary = self._summarize_monte_carlo_results(monte_carlo_results)
             st.subheader("ML Model Results Summary (Monte Carlo Decision Tree)")
@@ -650,11 +650,11 @@ class AnalysisAgent(BaseAgent):
                     )
                     
                     # Save structured data
-                    st.session_state.analysis_results = {
+                    memory.set_var("analysis_results", {
                         "parsed": parsed,
                         "full_analysis": analysis_result["analysis"],
-                        "timestamp": st.session_state.get("start_time", 0)
-                    }
+                        "timestamp": memory.get_var("start_time", 0)
+                    })
                     
                     st.success("✅ Analysis complete!")
                     
@@ -676,24 +676,24 @@ class AnalysisAgent(BaseAgent):
                     if parsed["more_experiments_needed"] or suggested_compositions or combined_recommendations:
                         st.info("🔄 Send results to Experiment Agent for protocol/worklist and Jupyter notebook upload.")
                         if st.button("🚀 Send to Experiment Agent (Jupyter Upload)", use_container_width=True):
-                            st.session_state.next_agent = "experiment"
-                            st.session_state.analysis_recommendations = combined_recommendations
-                            st.session_state.gp_suggested_compositions = suggested_compositions
-                            st.session_state.analysis_full_report = analysis_result["analysis"]
+                            memory.set_var("next_agent", "experiment")
+                            memory.set_var("analysis_recommendations", combined_recommendations)
+                            memory.set_var("gp_suggested_compositions", suggested_compositions)
+                            memory.set_var("analysis_full_report", analysis_result["analysis"])
                             st.switch_page("pages/experiment.py")
                     
                     # Decision point: Hypothesis needs revision?
                     if parsed["hypothesis_status"] in ["needs_revision", "rejected"]:
                         st.info("📝 The analysis suggests the hypothesis may need revision.")
                         if st.button("🔬 Return to Hypothesis Agent", use_container_width=True, key="return_hypothesis"):
-                            st.session_state.next_agent = "hypothesis"
-                            st.session_state.analysis_feedback = parsed
+                            memory.set_var("next_agent", "hypothesis")
+                            memory.set_var("analysis_feedback", parsed)
                             st.switch_page("pages/hypothesis.py")
                 else:
                     st.error(f"❌ Analysis failed: {analysis_result.get('error', 'Unknown error')}")
         
         # Display previous analysis if available
-        if st.session_state.get("analysis_results"):
+        if memory.get_var("analysis_results"):
             with st.expander("📜 Previous Analysis", expanded=False):
-                prev_analysis = st.session_state.analysis_results.get("full_analysis", "")
+                prev_analysis = memory.get_var("analysis_results", {}).get("full_analysis", "")
                 st.markdown(prev_analysis)

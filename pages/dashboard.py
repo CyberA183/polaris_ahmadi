@@ -26,18 +26,20 @@ st.set_page_config(layout="wide")
 st.markdown("#### 📈 System Performance")
 cols = st.columns(5)
 
-if "metrics_prev" not in st.session_state:
-    st.session_state.metrics_prev = {
+metrics_prev = memory.get_var("metrics_prev")
+if metrics_prev is None:
+    metrics_prev = {
         "prev_cpu": psutil.cpu_percent(interval=None),
         "ram": psutil.virtual_memory().percent,
         "uptime": 0,
         "interactions": 0,
         "events": 0,
     }
+    memory.set_var("metrics_prev", metrics_prev)
 
 # Get current CPU usage
 current_cpu = psutil.cpu_percent(interval=None)
-cpu_delta = current_cpu - st.session_state.metrics_prev["prev_cpu"]
+cpu_delta = current_cpu - metrics_prev["prev_cpu"]
 
 cols[0].metric(
     label="CPU Usage",
@@ -45,18 +47,20 @@ cols[0].metric(
     delta=f"{cpu_delta:+.1f}%",
     border=True
 )
-st.session_state.metrics_prev["prev_cpu"] = current_cpu
+metrics_prev["prev_cpu"] = current_cpu
+memory.set_var("metrics_prev", metrics_prev)
 
 # Memory metrics
 ram = psutil.virtual_memory()
-ram_delta = ram.percent - st.session_state.metrics_prev["ram"]
+ram_delta = ram.percent - metrics_prev["ram"]
 cols[1].metric(
     label="Memory Usage",
     value=f"{ram.percent:.1f}%",
     delta=f"{ram_delta:+.1f}%",
     border=True
 )
-st.session_state.metrics_prev["ram"] = ram.percent
+metrics_prev["ram"] = ram.percent
+memory.set_var("metrics_prev", metrics_prev)
 
 # Disk usage
 try:
@@ -71,8 +75,10 @@ except Exception:
     cols[2].metric(label="Disk Usage", value="N/A", border=True)
 
 # Uptime
-uptime = int(time.time() - st.session_state.start_time)
-uptime_delta = uptime - st.session_state.metrics_prev["uptime"]
+start_time = memory.get_var("start_time") or time.time()
+uptime = int(time.time() - start_time)
+metrics_prev = memory.get_var("metrics_prev") or {}
+uptime_delta = uptime - metrics_prev.get("uptime", 0)
 uptime_hours = uptime // 3600
 uptime_mins = (uptime % 3600) // 60
 cols[3].metric(
@@ -81,25 +87,27 @@ cols[3].metric(
     delta=f"{uptime_delta:+d}s",
     border=True
 )
-st.session_state.metrics_prev["uptime"] = uptime
+metrics_prev["uptime"] = uptime
+memory.set_var("metrics_prev", metrics_prev)
 
 # Total events
-total_events = len(st.session_state.get("conversation_events", []))
-events_delta = total_events - st.session_state.metrics_prev["events"]
+total_events = len(memory.get_var("conversation_events", []))
+events_delta = total_events - metrics_prev.get("events", 0)
 cols[4].metric(
     label="Total Events",
     value=total_events,
     delta=f"{events_delta:+d}",
     border=True
 )
-st.session_state.metrics_prev["events"] = total_events
+metrics_prev["events"] = total_events
+memory.set_var("metrics_prev", metrics_prev)
 
 st.markdown("---")
 # Agent Usage Analytics
 st.markdown("#### 🤖 Agent Usage Analytics")
-usage = st.session_state.get("agent_usage_counts", {})
+usage = memory.get_var("agent_usage_counts", {})
 total_agent_usage = sum(usage.values()) if usage else 0
-conversation_events = st.session_state.get("conversation_events", [])
+conversation_events = memory.get_var("conversation_events", [])
 
 def _count_events_by_mode(mode_name: str) -> int:
     return len([e for e in conversation_events if e.get("mode") == mode_name])
@@ -144,10 +152,10 @@ st.markdown("---")
 st.markdown("#### 👀 Watcher Status")
 watcher_cols = st.columns(4)
 
-watcher_enabled = st.session_state.get("watcher_enabled", False)
-watcher_server_url = st.session_state.get("watcher_server_url", "Not set")
-watcher_watch_dir = st.session_state.get("watcher_watch_dir", "Not set")
-watcher_last_trigger = st.session_state.get("watcher_auto_trigger_time")
+watcher_enabled = memory.get_var("watcher_enabled", False)
+watcher_server_url = memory.get_var("watcher_server_url", "Not set")
+watcher_watch_dir = memory.get_var("watcher_watch_dir", "Not set")
+watcher_last_trigger = memory.get_var("watcher_auto_trigger_time")
 
 watcher_cols[0].metric("Watcher Enabled", "Yes" if watcher_enabled else "No")
 watcher_cols[1].metric("Watcher Events", _count_events_by_type("watcher"))
@@ -164,7 +172,7 @@ st.caption(f"Watch Directory: `{watcher_watch_dir}`")
 st.markdown("---")
 # File Uploads
 st.markdown("#### 📁 Uploaded Files")
-uploaded_files = st.session_state.get("uploaded_files", [])
+uploaded_files = memory.get_var("uploaded_files", [])
 
 if uploaded_files:
     file_data = []
@@ -220,8 +228,8 @@ def generate_pdf_report(agent_name: str = "All Agents") -> bytes:
         ["Metric", "Value"],
         ["CPU Usage", f"{psutil.cpu_percent(interval=None):.1f}%"],
         ["Memory Usage", f"{psutil.virtual_memory().percent:.1f}%"],
-        ["Uptime", f"{int((time.time() - st.session_state.start_time) // 3600)} hours"],
-        ["Total Events", str(len(st.session_state.get("conversation_events", [])))],
+        ["Uptime", f"{int((time.time() - (memory.get_var('start_time') or time.time())) // 3600)} hours"],
+        ["Total Events", str(len(memory.get_var("conversation_events", [])))],
     ]
     metrics_table = Table(metrics_data)
     metrics_table.setStyle(TableStyle([
@@ -239,7 +247,7 @@ def generate_pdf_report(agent_name: str = "All Agents") -> bytes:
     
     # Agent Usage
     story.append(Paragraph("Agent Usage Statistics", styles['Heading2']))
-    usage = st.session_state.get("agent_usage_counts", {})
+    usage = memory.get_var("agent_usage_counts", {})
     usage_data = [["Agent", "Usage Count"]]
     for agent, count in usage.items():
         usage_data.append([agent.replace("_", " ").title(), str(count)])
@@ -260,7 +268,7 @@ def generate_pdf_report(agent_name: str = "All Agents") -> bytes:
     
     # Recent Interactions
     story.append(Paragraph("Recent Interactions", styles['Heading2']))
-    events = st.session_state.get("conversation_events", [])
+    events = memory.get_var("conversation_events", [])
     
     if agent_name != "All Agents":
         events = [e for e in events if e.get("mode", "").lower() == agent_name.lower()]
@@ -323,8 +331,8 @@ col1, col2, col3 = st.columns(3)
 
 with col1:
     # Hypothesis status
-    hypothesis_ready = st.session_state.get("hypothesis_ready", False)
-    last_hypothesis = st.session_state.get("last_hypothesis")
+    hypothesis_ready = memory.get_var("hypothesis_ready", False)
+    last_hypothesis = memory.get_var("last_hypothesis")
     if last_hypothesis:
         st.metric("Last Hypothesis", "Available" if hypothesis_ready else "In Progress")
     else:
@@ -332,12 +340,12 @@ with col1:
 
 with col2:
     # Experimental outputs
-    exp_outputs = st.session_state.get("experimental_outputs")
+    exp_outputs = memory.get_var("experimental_outputs")
     st.metric("Experimental Outputs", "Available" if exp_outputs else "None")
 
 with col3:
     # Routing mode
-    routing_mode = st.session_state.get("routing_mode", "Autonomous (LLM)")
+    routing_mode = memory.get_var("routing_mode", "Autonomous (LLM)")
     st.metric("Routing Mode", routing_mode)
 
 st.markdown("---")
@@ -345,12 +353,12 @@ st.markdown("---")
 st.markdown("#### 🔁 Workflow & Automation")
 wf_cols = st.columns(4)
 
-wf_cols[0].metric("Workflow Active", "Yes" if st.session_state.get("workflow_active") else "No")
-wf_cols[1].metric("Workflow Step", st.session_state.get("workflow_step", "N/A"))
-wf_cols[2].metric("Auto-ML After Curve Fitting", "On" if st.session_state.get("auto_ml_after_curve_fitting") else "Off")
-wf_cols[3].metric("Analysis Ready", "Yes" if st.session_state.get("analysis_ready") else "No")
+wf_cols[0].metric("Workflow Active", "Yes" if memory.get_var("workflow_active") else "No")
+wf_cols[1].metric("Workflow Step", memory.get_var("workflow_step", "N/A"))
+wf_cols[2].metric("Auto-ML After Curve Fitting", "On" if memory.get_var("auto_ml_after_curve_fitting") else "Off")
+wf_cols[3].metric("Analysis Ready", "Yes" if memory.get_var("analysis_ready") else "No")
 
-ml_model_choice = st.session_state.get("optimization_model_choice") or "Not set"
+ml_model_choice = memory.get_var("optimization_model_choice") or "Not set"
 st.caption(f"ML Model Choice: `{ml_model_choice}`")
 
 st.markdown("---")
@@ -358,10 +366,10 @@ st.markdown("---")
 st.markdown("#### 📌 Session Statistics")
 stat_cols = st.columns(4)
 
-stat_cols[0].metric("Total Interactions", len(st.session_state.get("conversation_events", [])))
+stat_cols[0].metric("Total Interactions", len(memory.get_var("conversation_events", [])))
 stat_cols[1].metric("Uploaded Files", len(uploaded_files))
 stat_cols[2].metric("Active Sessions", 1)  # Single session for now
-stat_cols[3].metric("Workflow Progress", f"{st.session_state.get('workflow_index', 0)} steps")
+stat_cols[3].metric("Workflow Progress", f"{memory.get_var('workflow_index', 0)} steps")
 
 st.markdown("---")
 # ML & Analysis Activity

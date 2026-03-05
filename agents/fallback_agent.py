@@ -58,7 +58,7 @@ class FallbackAgent(BaseAgent):
         
         with col1:
             if st.button("🔄 Retry Routing", use_container_width=True):
-                st.session_state.workflow_index = 0
+                memory.set_var("workflow_index", 0)
                 st.rerun()
         
         with col2:
@@ -72,12 +72,12 @@ class FallbackAgent(BaseAgent):
         # Show current state for debugging
         with st.expander("🔍 Debug Information", expanded=False):
             st.json({
-                "routing_mode": st.session_state.get("routing_mode", "Unknown"),
-                "workflow_index": st.session_state.get("workflow_index", 0),
-                "manual_workflow": st.session_state.get("manual_workflow", []),
-                "last_hypothesis": st.session_state.get("last_hypothesis") is not None,
-                "experimental_outputs": st.session_state.get("experimental_outputs") is not None,
-                "uploaded_files": len(st.session_state.get("uploaded_files", []))
+                "routing_mode": memory.get_var("routing_mode", "Unknown"),
+                "workflow_index": memory.get_var("workflow_index", 0),
+                "manual_workflow": memory.get_var("manual_workflow", []),
+                "last_hypothesis": memory.get_var("last_hypothesis") is not None,
+                "experimental_outputs": memory.get_var("experimental_outputs") is not None,
+                "uploaded_files": len(memory.get_var("uploaded_files", []))
             })
         
         st.info("💡 **Tip:** Try adjusting your routing mode in Settings or ensure you have completed the prerequisite steps for your workflow.")

@@ -6,21 +6,22 @@ memory = MemoryManager()
 memory.init_session()
 
 def clear_conversation():
-    st.session_state.stage = "initial"
-    st.session_state.conversation_history = []
-    st.session_state.allow_followup = False
+    memory.set_var("stage", "initial")
+    memory.set_var("conversation_history", [])
+    memory.set_var("allow_followup", False)
     st.toast("Conversation restarted")
 
 def stop_and_create_hypothesis():
-    st.session_state.stop_hypothesis = True
-    st.session_state.stage = "hypothesis"
+    memory.set_var("stop_hypothesis", True)
+    memory.set_var("stage", "hypothesis")
     st.toast("Generating hypothesis...")
     st.rerun()
 
 def go_back_stage():
-    # Go back one stage of the process
-    if st.session_state.interactions:
-        st.session_state.interactions.pop()
+    interactions = memory.get_var("interactions", [])
+    if interactions:
+        interactions.pop()
+        memory.set_var("interactions", interactions)
         st.toast("Returned to previous stage")
     else:
         st.warning("No previous stage to go back to.")
@@ -98,10 +99,8 @@ st.markdown("""
 # Display existing chat
 chat_container = st.container()
 with chat_container:
-    # Ensure interactions list exists
-    if "interactions" not in st.session_state:
-        st.session_state.interactions = []
-    for i in st.session_state.interactions:
+    interactions = memory.get_var("interactions", [])
+    for i in interactions:
         with st.chat_message(i["role"]):
             # Add section headers for specific components to make them clear
             if i.get("component") == "socratic_answers":
@@ -121,7 +120,7 @@ with bottom:
 
 # Initialize and run the Hypothesis Agent
 # Get initial question from session state or use a default
-initial_question = st.session_state.get("initial_question", "")
+initial_question = memory.get_var("initial_question", "")
 
 # Create and run the agent
 agent = HypothesisAgent(
@@ -135,12 +134,12 @@ agent.run_agent(memory)
 
 # Workflow transition: offer manual Continue (no auto-switch)
 if (
-    st.session_state.get("workflow_active")
-    and st.session_state.get("stage") == "analysis"
-    and st.session_state.get("hypothesis_ready")
+    memory.get_var("workflow_active")
+    and memory.get_var("stage") == "analysis"
+    and memory.get_var("hypothesis_ready")
 ):
-    st.session_state.workflow_step = "experiment"
-    st.session_state.workflow_experiment_started = False
+    memory.set_var("workflow_step", "experiment")
+    memory.set_var("workflow_experiment_started", False)
     st.divider()
     if st.button("Continue to Experiment Agent →", type="primary", use_container_width=True, key="hyp_continue_experiment"):
         st.switch_page("pages/experiment.py")

@@ -34,7 +34,7 @@ class MLModelsAgent(BaseAgent):
                 conf = max(conf, 0.6)
 
         if STREAMLIT_AVAILABLE and st is not None:
-            if st.session_state.get("ml_auto_json_path") or st.session_state.get("ml_auto_csv_path"):
+            if self.memory.get_var("ml_auto_json_path") or self.memory.get_var("ml_auto_csv_path"):
                 conf = max(conf, 0.6)
 
         return conf
@@ -43,7 +43,7 @@ class MLModelsAgent(BaseAgent):
         # If Streamlit is available, route to the ML Models page
         if STREAMLIT_AVAILABLE and st is not None:
             try:
-                st.session_state.next_agent = "ml_models"
+                memory.set_var("next_agent", "ml_models")
                 st.switch_page("pages/ml_models.py")
                 return {"success": True, "routed": True}
             except Exception:
@@ -60,11 +60,11 @@ class MLModelsAgent(BaseAgent):
             composition_csv = None
 
             if STREAMLIT_AVAILABLE and st is not None:
-                model_choice = st.session_state.get("optimization_model_choice")
-                auto_config = st.session_state.get("ml_model_config", {})
-                json_path = st.session_state.get("ml_auto_json_path")
-                csv_path = st.session_state.get("ml_auto_csv_path")
-                composition_csv = st.session_state.get("ml_auto_composition_path")
+                model_choice = memory.get_var("optimization_model_choice")
+                auto_config = memory.get_var("ml_model_config", {})
+                json_path = memory.get_var("ml_auto_json_path")
+                csv_path = memory.get_var("ml_auto_csv_path")
+                composition_csv = memory.get_var("ml_auto_composition_path")
 
             if payload and isinstance(payload, dict):
                 json_path = payload.get("results_json") or payload.get("json_path") or json_path

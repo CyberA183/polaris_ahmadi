@@ -184,9 +184,26 @@ class ExperimentMemory:
         self._save_memory(memory_data)
 
 
-def get_experiment_memory() -> ExperimentMemory:
-    """Get or create experiment memory instance."""
-    if "experiment_memory" not in st.session_state:
-        memory_file = st.session_state.get("experiment_memory_file", "experiment_memory.json")
-        st.session_state.experiment_memory = ExperimentMemory(memory_file=memory_file)
-    return st.session_state.experiment_memory
+def get_experiment_memory(memory_manager=None) -> ExperimentMemory:
+    """Get or create experiment memory instance.
+    Uses memory_manager.get_var if provided, else falls back to st.session_state for compatibility.
+    """
+    try:
+        import streamlit as st
+        if memory_manager is not None:
+            exp_mem = memory_manager.get_var("experiment_memory")
+            if exp_mem is None:
+                memory_file = memory_manager.get_var("experiment_memory_file", "experiment_memory.json")
+                data_dir = memory_manager.get_var("experiment_data_dir", "data")
+                exp_mem = ExperimentMemory(memory_file=memory_file)
+                exp_mem.memory_dir = data_dir
+                memory_manager.set_var("experiment_memory", exp_mem)
+            return exp_mem
+        if "experiment_memory" not in st.session_state:
+            memory_file = st.session_state.get("experiment_memory_file", "experiment_memory.json")
+            st.session_state.experiment_memory = ExperimentMemory(memory_file=memory_file)
+        return st.session_state.experiment_memory
+    except (RuntimeError, AttributeError, ImportError):
+        return ExperimentMemory()
+
+

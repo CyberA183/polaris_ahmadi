@@ -98,7 +98,7 @@ class ExperimentAgent(BaseAgent):
         writer.writeheader()
 
         # Get max volume from constraints
-        max_vol = st.session_state.experimental_constraints["liquid_handling"]["max_volume_per_mixture"]
+        max_vol = self.memory.get_var("experimental_constraints", {})["liquid_handling"]["max_volume_per_mixture"]
 
         # First, try to parse specific worklist from experimental plan
         parsed_worklist = self.parse_worklist_from_plan(experimental_plan, materials)
@@ -473,7 +473,7 @@ class ExperimentAgent(BaseAgent):
 
     def get_experimental_context(self):
         """Get experimental constraints as context for hypothesis generation"""
-        constraints = st.session_state.experimental_constraints
+        constraints = self.memory.get_var("experimental_constraints", {})
         context = ""
 
         # Add explicit constraint header
@@ -518,10 +518,10 @@ class ExperimentAgent(BaseAgent):
         return context
 
     def run_agent(self, memory):
-        constraints = st.session_state.experimental_constraints
+        constraints = memory.get_var("experimental_constraints", {})
 
         # Check for API key
-        if not st.session_state.get("api_key"):
+        if not memory.get_var("api_key"):
             st.warning("Please enter your API key in Settings before continuing.")
             st.stop()
 
@@ -531,19 +531,19 @@ class ExperimentAgent(BaseAgent):
         # Try to get hypothesis from memory first, then check for manual inputs
         hypothesis = self.memory.view_component("hypothesis")
         if not hypothesis:
-            hypothesis = st.session_state.get("manual_hypothesis", "")
+            hypothesis = memory.get_var("manual_hypothesis", "")
         
         # Get clarified question - try memory first, then manual input
         clarified_question = self.memory.view_component("clarified_question")
         if not clarified_question:
-            clarified_question = st.session_state.get("manual_clarified_question", "")
+            clarified_question = memory.get_var("manual_clarified_question", "")
         if not clarified_question:
             clarified_question = "How can we test this research question?"
         
         # Get socratic questions - try memory first, then manual input
         socratic_questions = self.memory.view_component("socratic_pass")
         if not socratic_questions:
-            socratic_questions = st.session_state.get("manual_socratic_questions", "")
+            socratic_questions = memory.get_var("manual_socratic_questions", "")
         if not socratic_questions:
             socratic_questions = "What experimental approaches are needed?"
         
@@ -570,22 +570,22 @@ class ExperimentAgent(BaseAgent):
                 st.markdown("**Source:**")
                 st.write("✅ Clarified Question: " + ("Memory" if self.memory.view_component("clarified_question") else "Manual Input"))
                 st.write("✅ Socratic Questions: " + ("Memory" if self.memory.view_component("socratic_pass") else "Manual Input"))
-                st.write("📝 Hypothesis: " + ("Memory" if self.memory.view_component("hypothesis") else ("Manual Input" if st.session_state.get("manual_hypothesis") else "Not provided")))
+                st.write("📝 Hypothesis: " + ("Memory" if self.memory.view_component("hypothesis") else ("Manual Input" if memory.get_var("manual_hypothesis") else "Not provided")))
             with col2:
                 st.markdown("**Preview:**")
                 st.text_area("Clarified Question:", clarified_question[:200] + "..." if len(clarified_question) > 200 else clarified_question, height=60, disabled=True, key="preview_clarified")
                 st.text_area("Socratic Questions:", socratic_questions[:200] + "..." if len(socratic_questions) > 200 else socratic_questions, height=60, disabled=True, key="preview_socratic")
 
         # Save manual inputs to memory if they were provided
-        if st.session_state.get("manual_clarified_question"):
-            self.memory.insert_interaction("user", st.session_state.manual_clarified_question, "clarified_question", "experiment")
-        if st.session_state.get("manual_socratic_questions"):
-            self.memory.insert_interaction("assistant", st.session_state.manual_socratic_questions, "socratic_pass", "experiment")
-        if st.session_state.get("manual_socratic_answers"):
-            self.memory.insert_interaction("assistant", st.session_state.manual_socratic_answers, "socratic_answers", "experiment")
-        if st.session_state.get("manual_hypothesis"):
-            self.memory.insert_interaction("assistant", st.session_state.manual_hypothesis, "hypothesis", "experiment")
-            hypothesis = st.session_state.manual_hypothesis
+        if memory.get_var("manual_clarified_question"):
+            self.memory.insert_interaction("user", memory.get_var("manual_clarified_question"), "clarified_question", "experiment")
+        if memory.get_var("manual_socratic_questions"):
+            self.memory.insert_interaction("assistant", memory.get_var("manual_socratic_questions"), "socratic_pass", "experiment")
+        if memory.get_var("manual_socratic_answers"):
+            self.memory.insert_interaction("assistant", memory.get_var("manual_socratic_answers"), "socratic_answers", "experiment")
+        if memory.get_var("manual_hypothesis"):
+            self.memory.insert_interaction("assistant", memory.get_var("manual_hypothesis"), "hypothesis", "experiment")
+            hypothesis = memory.get_var("manual_hypothesis")
 
         # Generate experimental plan using LLM
         with st.spinner("Generating experimental plan with LLM..."):
@@ -679,15 +679,15 @@ class ExperimentAgent(BaseAgent):
                 st.info("No Opentrons protocol (Opentrons not in instruments list)")
 
         # Jupyter Upload (optional)
-        if st.session_state.jupyter_config.get("upload_enabled"):
+        if memory.get_var("jupyter_config", {}).get("upload_enabled"):
             st.subheader("Jupyter Integration")
             if st.button("Upload to Jupyter", use_container_width=True):
                 success, message = self.upload_to_jupyter(
-                    st.session_state.jupyter_config["server_url"],
-                    st.session_state.jupyter_config["token"],
+                    memory.get_var("jupyter_config", {})["server_url"],
+                    memory.get_var("jupyter_config", {})["token"],
                     worklist,
                     "worklist.csv",
-                    st.session_state.jupyter_config["notebook_path"]
+                    memory.get_var("jupyter_config", {})["notebook_path"]
                 )
                 if success:
                     st.success(message)
@@ -695,12 +695,12 @@ class ExperimentAgent(BaseAgent):
                     st.error(message)
 
         # Save experimental outputs
-        st.session_state.experimental_outputs = {
+        memory.set_var("experimental_outputs", {
             "plan": experimental_plan,
             "worklist": worklist,
             "layout": layout,
             "protocol": protocol
-        }
+        })
         
         self.memory.log_event("experiment_complete", {
             "plan": experimental_plan[:500],  # Truncate for storage
@@ -711,7 +711,7 @@ class ExperimentAgent(BaseAgent):
         # Record experiment in memory system
         try:
             from tools.experiment_memory import get_experiment_memory
-            experiment_memory = get_experiment_memory()
+            experiment_memory = get_experiment_memory(memory)
             
             # Generate experiment ID from worklist
             import hashlib

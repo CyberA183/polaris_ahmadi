@@ -99,7 +99,8 @@ def generate_text_with_llm(prompt: str) -> str:
         if not api_key:
             try:
                 import streamlit as st
-                if hasattr(st, 'session_state') and hasattr(st.session_state, 'api_key'):
+                api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+                if not api_key and hasattr(st, 'session_state') and hasattr(st.session_state, 'api_key'):
                     api_key = st.session_state.get('api_key')
             except (RuntimeError, AttributeError):
                 # Not in Streamlit context, continue to other checks

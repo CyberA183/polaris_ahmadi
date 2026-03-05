@@ -19,11 +19,11 @@ class AgentRouter:
     """
     Central router coordinating which agent should run next.
 
-    Modes (configured via `st.session_state.routing_mode`):
+    Modes (configured via `memory.routing_mode`):
     - **Autonomous (LLM)**: use per‑agent `confidence` plus an LLM tie‑breaker
       that looks at current session context (files, hypothesis, experiment data).
     - **Manual Workflow**: follow the user‑defined ordered workflow in
-      `st.session_state.manual_workflow`.
+      `memory.manual_workflow`.
 
     The router does not render UI itself; pages/agents can call it when they
     want the “next” agent to run.
@@ -55,11 +55,11 @@ class AgentRouter:
         
         if STREAMLIT_AVAILABLE and st is not None:
             try:
-                uploaded_files = st.session_state.get("uploaded_files", [])
-                last_hypothesis = st.session_state.get("last_hypothesis")
-                experimental_outputs = st.session_state.get("experimental_outputs")
-                experimental_constraints = st.session_state.get("experimental_constraints", {})
-                curve_fitting_results = st.session_state.get("curve_fitting_results")
+                uploaded_files = memory.get_var("uploaded_files", [])
+                last_hypothesis = memory.get_var("last_hypothesis")
+                experimental_outputs = memory.get_var("experimental_outputs")
+                experimental_constraints = memory.get_var("experimental_constraints", {})
+                curve_fitting_results = memory.get_var("curve_fitting_results")
             except (RuntimeError, AttributeError, NameError):
                 # Fallback to defaults if session state access fails
                 pass
@@ -110,8 +110,8 @@ Return ONLY the exact name of the chosen agent from the list above, with no expl
 
     def _route_manual(self) -> Optional[Any]:
         """
-        Manual workflow: follow `st.session_state.manual_workflow` and
-        `st.session_state.workflow_index`.
+        Manual workflow: follow `memory.manual_workflow` and
+        `memory.workflow_index`.
         """
         if not STREAMLIT_AVAILABLE:
             # In headless mode, use default workflow
@@ -119,11 +119,11 @@ Return ONLY the exact name of the chosen agent from the list above, with no expl
             index = 0
         else:
             try:
-                workflow = st.session_state.get(
+                workflow = memory.get_var(
                     "manual_workflow",
                     ["Hypothesis Agent", "Experiment Agent", "Curve Fitting", "ML Models", "Analysis Agent"],
                 )
-                index = st.session_state.get("workflow_index", 0)
+                index = memory.get_var("workflow_index", 0)
             except (RuntimeError, AttributeError):
                 workflow = ["Hypothesis Agent", "Experiment Agent", "Curve Fitting", "ML Models", "Analysis Agent"]
                 index = 0
@@ -155,7 +155,7 @@ Return ONLY the exact name of the chosen agent from the list above, with no expl
         
         if STREAMLIT_AVAILABLE:
             try:
-                routing_mode = st.session_state.get("routing_mode", "Autonomous (LLM)")
+                routing_mode = memory.get_var("routing_mode", "Autonomous (LLM)")
             except (RuntimeError, AttributeError):
                 routing_mode = "Autonomous (LLM)"
         else:
@@ -173,12 +173,12 @@ Return ONLY the exact name of the chosen agent from the list above, with no expl
             # Advance workflow index for next call
             try:
                 if STREAMLIT_AVAILABLE and hasattr(st, 'session_state'):
-                    st.session_state.workflow_index = st.session_state.get("workflow_index", 0) + 1
-                    st.session_state.agent_usage_counts["router"] = st.session_state.agent_usage_counts.get("router", 0) + 1
+                    memory.set_var("workflow_index", memory.get_var("workflow_index", 0) + 1)
+                    counts = memory.get_var("agent_usage_counts", {})
+                    counts["router"] = counts.get("router", 0) + 1
                     agent_key = getattr(agent, "name", "unknown").split()[0].lower()
-                    st.session_state.agent_usage_counts[agent_key] = (
-                        st.session_state.agent_usage_counts.get(agent_key, 0) + 1
-                    )
+                    counts[agent_key] = counts.get(agent_key, 0) + 1
+                    memory.set_var("agent_usage_counts", counts)
             except (RuntimeError, AttributeError):
                 pass
             return agent.run_agent(memory)
@@ -212,7 +212,9 @@ Return ONLY the exact name of the chosen agent from the list above, with no expl
             if self.fallback_agent:
                 try:
                     if STREAMLIT_AVAILABLE and hasattr(st, 'session_state'):
-                        st.session_state.agent_usage_counts["router"] = st.session_state.agent_usage_counts.get("router", 0) + 1
+                        counts = memory.get_var("agent_usage_counts", {})
+                        counts["router"] = counts.get("router", 0) + 1
+                        memory.set_var("agent_usage_counts", counts)
                 except (RuntimeError, AttributeError):
                     pass
                 return self.fallback_agent.run_agent(memory)
@@ -239,11 +241,11 @@ Return ONLY the exact name of the chosen agent from the list above, with no expl
             # Update usage counts if Streamlit is available
             try:
                 if STREAMLIT_AVAILABLE and hasattr(st, 'session_state'):
-                    st.session_state.agent_usage_counts["router"] = st.session_state.agent_usage_counts.get("router", 0) + 1
+                    counts = memory.get_var("agent_usage_counts", {})
+                    counts["router"] = counts.get("router", 0) + 1
                     key = getattr(chosen_agent, "name", "unknown").split()[0].lower()
-                    st.session_state.agent_usage_counts[key] = (
-                        st.session_state.agent_usage_counts.get(key, 0) + 1
-                    )
+                    counts[key] = counts.get(key, 0) + 1
+                    memory.set_var("agent_usage_counts", counts)
             except (RuntimeError, AttributeError):
                 pass
             

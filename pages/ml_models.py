@@ -37,9 +37,9 @@ MODEL_MONTE_CARLO_TREE = "Monte Carlo Decision Tree (external)"
 available_models = [MODEL_SINGLE_GP, MODEL_DUAL_TORCH_GP, MODEL_MONTE_CARLO_TREE]
 
 # If a workflow-specific choice exists, use it as default
-default_model = st.session_state.get("workflow_ml_model_choice")
+default_model = memory.get_var("workflow_ml_model_choice")
 if default_model not in available_models:
-    default_model = st.session_state.get("optimization_model_choice", MODEL_SINGLE_GP)
+    default_model = memory.get_var("optimization_model_choice", MODEL_SINGLE_GP)
 if default_model not in available_models:
     default_model = MODEL_SINGLE_GP
 
@@ -56,14 +56,14 @@ model_choice = st.selectbox(
 )
 
 # Persist choice for use by other pages/agents in the workflow and automation
-st.session_state.optimization_model_choice = model_choice
+memory.set_var("optimization_model_choice", model_choice)
 
 # Basic per-model config object used by automated runs (curve_fitting.py → ml_automation.py)
-if "ml_model_config" not in st.session_state or not isinstance(st.session_state.ml_model_config, dict):
-    st.session_state.ml_model_config = {}
+if memory.get_var("ml_model_config") is None or not isinstance(memory.get_var("ml_model_config"), dict):
+    memory.set_var("ml_model_config", {})
 
 # Show automation status
-if st.session_state.get("auto_ml_after_curve_fitting", False):
+if memory.get_var("auto_ml_after_curve_fitting", False):
     st.info("Automation Enabled: this model will run automatically after curve fitting completes.")
 
 class GaussianProcessModel:
@@ -223,7 +223,7 @@ def render_monte_carlo_tree_ui():
     )
     
     # Configuration in session_state so automation can reuse it
-    cfg = st.session_state.get("ml_model_config", {})
+    cfg = memory.get_var("ml_model_config", {})
     mc_cfg = cfg.get("monte_carlo_tree", {})
     
     default_repo = mc_cfg.get(
@@ -254,11 +254,13 @@ def render_monte_carlo_tree_ui():
     )
     
     # Save config back to session so automation can use it
-    st.session_state.ml_model_config["monte_carlo_tree"] = {
+    cfg = memory.get_var("ml_model_config", {})
+    cfg["monte_carlo_tree"] = {
         "repo_path": repo_path,
         "n_attempts": int(n_attempts),
         "with_agent": use_agent,
     }
+    memory.set_var("ml_model_config", cfg)
     
     st.markdown("### Run Monte Carlo Decision Tree manually")
     
@@ -614,32 +616,32 @@ if model_choice == MODEL_SINGLE_GP:
     # Single-objective GP (scikit-learn) using JSON + composition CSV
     # ---------------------------------------------------------------------
     # Auto-run when arriving from curve fitting with automation enabled
-    _auto_files = st.session_state.get("workflow_curve_fitting_files", {})
-    _auto_json = _auto_files.get("results_json") or st.session_state.get("ml_auto_json_path")
-    _auto_comp = _auto_files.get("composition_csv") or st.session_state.get("ml_auto_composition_path")
+    _auto_files = memory.get_var("workflow_curve_fitting_files", {})
+    _auto_json = _auto_files.get("results_json") or memory.get_var("ml_auto_json_path")
+    _auto_comp = _auto_files.get("composition_csv") or memory.get_var("ml_auto_composition_path")
     _should_auto_run = (
-        st.session_state.get("workflow_active")
-        and st.session_state.get("auto_ml_after_curve_fitting", False)
-        and st.session_state.get("workflow_curve_fitting_completed", False)
+        memory.get_var("workflow_active")
+        and memory.get_var("auto_ml_after_curve_fitting", False)
+        and memory.get_var("workflow_curve_fitting_completed", False)
         and _auto_json and os.path.exists(str(_auto_json))
         and _auto_comp and os.path.exists(str(_auto_comp))
-        and (st.session_state.get("workflow_ml_model_choice") == MODEL_SINGLE_GP
-             or st.session_state.get("optimization_model_choice") == MODEL_SINGLE_GP)
+        and (memory.get_var("workflow_ml_model_choice") == MODEL_SINGLE_GP
+             or memory.get_var("optimization_model_choice") == MODEL_SINGLE_GP)
     )
     if _should_auto_run:
         with st.spinner("Training GP model and generating acquisition batch..."):
             try:
                 from tools.ml_automation import run_automated_ml_model
-                ml_config = st.session_state.get("ml_model_config", {})
+                ml_config = memory.get_var("ml_model_config", {})
                 ml_result = run_automated_ml_model(
                     model_choice=MODEL_SINGLE_GP,
                     json_path=_auto_json,
-                    csv_path=_auto_files.get("results_csv") or st.session_state.get("ml_auto_csv_path"),
+                    csv_path=_auto_files.get("results_csv") or memory.get_var("ml_auto_csv_path"),
                     composition_csv=_auto_comp,
                     auto_config=ml_config,
                 )
                 if ml_result.get("success"):
-                    st.session_state.gp_results = {
+                    memory.set_var("gp_results", {
                         "model_type": ml_result.get("model_type", "SingleGP"),
                         "kernel": ml_result.get("kernel", "RBF"),
                         "target": ml_result.get("target", "peak_1_wavelength"),
@@ -650,9 +652,9 @@ if model_choice == MODEL_SINGLE_GP:
                         "suggested_compositions": ml_result.get("suggested_compositions", []),
                         "predictions": ml_result.get("predictions", {}),
                         "uncertainty_stats": ml_result.get("uncertainty_stats", {}),
-                    }
-                    st.session_state.gp_results_available = True
-                    st.session_state.analysis_ready = True
+                    })
+                    memory.set_var("gp_results_available", True)
+                    memory.set_var("analysis_ready", True)
                     st.success("GP trained. Acquisition batch generated.")
                     # Plot: GP mean + 95% CI + training points (reference style)
                     if ml_result.get("gp_ucb_acquisition_plot") and os.path.exists(ml_result["gp_ucb_acquisition_plot"]):
@@ -670,7 +672,7 @@ if model_choice == MODEL_SINGLE_GP:
                             for s in ml_result["suggested_compositions"]
                         ])
                         st.dataframe(batch_df, use_container_width=True)
-                    st.session_state.workflow_curve_fitting_completed = False  # Prevent re-auto-run
+                    memory.set_var("workflow_curve_fitting_completed", False)  # Prevent re-auto-run
                     st.info("Switching to Analysis Agent...")
                     st.switch_page("pages/analysis.py")
                 else:
@@ -722,10 +724,10 @@ if model_choice == MODEL_SINGLE_GP:
         )
 
     # Auto-load files from workflow/automation if available
-    auto_files = st.session_state.get("workflow_curve_fitting_files", {})
-    auto_results_json = auto_files.get("results_json") or st.session_state.get("ml_auto_json_path")
-    auto_results_csv = auto_files.get("results_csv") or st.session_state.get("ml_auto_csv_path")
-    auto_composition_csv = auto_files.get("composition_csv") or st.session_state.get("ml_auto_composition_path")
+    auto_files = memory.get_var("workflow_curve_fitting_files", {})
+    auto_results_json = auto_files.get("results_json") or memory.get_var("ml_auto_json_path")
+    auto_results_csv = auto_files.get("results_csv") or memory.get_var("ml_auto_csv_path")
+    auto_composition_csv = auto_files.get("composition_csv") or memory.get_var("ml_auto_composition_path")
 
     if not curve_fitting_file and auto_results_json and os.path.exists(auto_results_json):
         curve_fitting_file = auto_results_json
@@ -1079,15 +1081,15 @@ if model_choice == MODEL_SINGLE_GP:
                                 "beta": float(beta),
                             }
 
-                            st.session_state.gp_results = gp_results
-                            st.session_state.analysis_ready = True
+                            memory.set_var("gp_results", gp_results)
+                            memory.analysis_ready = True
 
                             st.success("Exploration candidates generated! Results saved for Analysis Agent.")
                             
                             # Check if Analysis Agent is next in workflow and marked as automatic
-                            workflow_auto_flags = st.session_state.get("workflow_auto_flags", {})
-                            manual_workflow = st.session_state.get("manual_workflow", [])
-                            workflow_index = st.session_state.get("workflow_index", 0)
+                            workflow_auto_flags = memory.get_var("workflow_auto_flags", {})
+                            manual_workflow = memory.get_var("manual_workflow", [])
+                            workflow_index = memory.get_var("workflow_index", 0)
                             
                             analysis_auto_from_workflow = (
                                 workflow_index < len(manual_workflow)
@@ -1098,8 +1100,8 @@ if model_choice == MODEL_SINGLE_GP:
                             # Auto-route if workflow says so
                             if analysis_auto_from_workflow:
                                 st.info("Auto-routing to Analysis Agent (workflow automation)...")
-                                st.session_state.next_agent = "analysis"
-                                st.session_state.gp_results_available = True
+                                memory.set_var("next_agent", "analysis")
+                                memory.set_var("gp_results_available", True)
                                 st.rerun()
 
                             # Button to send to analysis agent
@@ -1108,17 +1110,17 @@ if model_choice == MODEL_SINGLE_GP:
                                 use_container_width=True,
                                 key="single_gp_send_analysis",
                             ):
-                                st.session_state.next_agent = "analysis"
-                                st.session_state.gp_results_available = True
+                                memory.set_var("next_agent", "analysis")
+                                memory.set_var("gp_results_available", True)
                                 st.rerun()
 
                     # Save model to session state
-                    st.session_state.gp_model = gp_model
-                    st.session_state.gp_training_data = {
+                    memory.set_var("gp_model", gp_model)
+                    memory.set_var("gp_training_data", {
                         "X": X_df,
                         "y": y_series,
                         "feature_cols": feature_cols,
-                    }
+                    })
 
         except Exception as e:
             st.error(f"Error processing data: {e}")
@@ -1163,8 +1165,8 @@ dual_gp_csv_file = st.file_uploader(
 )
 
 if dual_gp_csv_file is None:
-    auto_files = st.session_state.get("workflow_curve_fitting_files", {})
-    auto_results_csv = auto_files.get("results_csv") or st.session_state.get("ml_auto_csv_path")
+    auto_files = memory.get_var("workflow_curve_fitting_files", {})
+    auto_results_csv = auto_files.get("results_csv") or memory.get_var("ml_auto_csv_path")
     if auto_results_csv and os.path.exists(auto_results_csv):
         dual_gp_csv_file = auto_results_csv
         st.info(f"Using workflow peak CSV: `{Path(auto_results_csv).name}`")
@@ -1420,7 +1422,7 @@ if dual_gp_csv_file is not None:
                                 acquisition_score = np.where(init_tune_score > threshold_value, 0, acquisition_score)
                             else:
                                 # Additive fallback (original method)
-                                stability_weight = st.session_state.get('stability_weight_dual', 1.0)
+                                stability_weight = memory.get_var('stability_weight_dual', 1.0)
                                 acquisition_score = acq_base - stability_weight * mu_stab
 
                             df_results = df_dual.copy()
@@ -1487,13 +1489,13 @@ if dual_gp_csv_file is not None:
                                 "top_candidates": df_ranked.head(5).to_dict(orient="records"),
                             }
 
-                            st.session_state.gp_results = gp_dual_results
-                            st.session_state.analysis_ready = True
+                            memory.set_var("gp_results", gp_dual_results)
+                            memory.analysis_ready = True
                             
                             # Check if Analysis Agent is next in workflow and marked as automatic
-                            workflow_auto_flags = st.session_state.get("workflow_auto_flags", {})
-                            manual_workflow = st.session_state.get("manual_workflow", [])
-                            workflow_index = st.session_state.get("workflow_index", 0)
+                            workflow_auto_flags = memory.get_var("workflow_auto_flags", {})
+                            manual_workflow = memory.get_var("manual_workflow", [])
+                            workflow_index = memory.get_var("workflow_index", 0)
                             
                             analysis_auto_from_workflow = (
                                 workflow_index < len(manual_workflow)
@@ -1504,8 +1506,8 @@ if dual_gp_csv_file is not None:
                             # Auto-route if workflow says so
                             if analysis_auto_from_workflow:
                                 st.info("Auto-routing to Analysis Agent (workflow automation)...")
-                                st.session_state.next_agent = "analysis"
-                                st.session_state.gp_results_available = True
+                                memory.set_var("next_agent", "analysis")
+                                memory.set_var("gp_results_available", True)
                                 st.rerun()
 
                             st.info(
@@ -1516,8 +1518,8 @@ if dual_gp_csv_file is not None:
                                 "Send Dual GP Results to Analysis Agent",
                                 use_container_width=True,
                             ):
-                                st.session_state.next_agent = "analysis"
-                                st.session_state.gp_results_available = True
+                                memory.set_var("next_agent", "analysis")
+                                memory.set_var("gp_results_available", True)
                                 st.rerun()
 
                         except Exception as e:
@@ -1528,11 +1530,11 @@ if dual_gp_csv_file is not None:
 
 # Workflow: offer manual Continue to Analysis (no auto-switch)
 if (
-    st.session_state.get("workflow_active")
-    and st.session_state.get("workflow_step") == "ml_models"
-    and st.session_state.get("analysis_ready")
+    memory.get_var("workflow_active")
+    and memory.get_var("workflow_step") == "ml_models"
+    and memory.get_var("analysis_ready")
 ):
-    st.session_state.workflow_step = "analysis"
+    memory.set_var("workflow_step", "analysis")
     st.divider()
     if st.button("Continue to Analysis Agent →", type="primary", use_container_width=True, key="ml_continue_analysis"):
         st.switch_page("pages/analysis.py")

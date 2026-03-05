@@ -33,7 +33,7 @@ def _safe_json_dumps(obj):
 def export_message_history(events=None):
     """Export conversation events as JSON or text"""
     if events is None:
-        events = st.session_state.get("conversation_events", [])
+        events = memory.get_var("conversation_events", [])
     
     if not events:
         return "[]", "No conversation history available."
@@ -50,7 +50,7 @@ def export_message_history(events=None):
 
 def get_events_by_mode(mode):
     """Get all events for a specific agent mode"""
-    events = st.session_state.get("conversation_events", [])
+    events = memory.get_var("conversation_events", [])
     return [e for e in events if e.get("mode") == mode]
 
 def format_interaction_text(event):
@@ -87,7 +87,7 @@ st.set_page_config(layout="wide")
 st.title("📜 Interaction History")
 
 # Get all events
-all_events = st.session_state.get("conversation_events", [])
+all_events = memory.get_var("conversation_events", [])
 
 # Group events by mode (agent)
 agent_modes = {}

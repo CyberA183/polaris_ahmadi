@@ -32,7 +32,7 @@ class HypothesisAgent(BaseAgent):
             # Lazy import socratic module
             socratic = _lazy_import_socratic()
             
-            if not st.session_state.api_key:
+            if not self.memory.get_var("api_key"):
                 st.warning("Please enter your API key in Settings before continuing.")
                 st.info("**Make sure you're using a Google Gemini API key, not an OpenAI key.**")
                 st.info("Get your Gemini API key from: https://makersuite.google.com/app/apikey")
@@ -113,7 +113,7 @@ class HypothesisAgent(BaseAgent):
         """ Build full conversation context from all interactions """
         if prompt_session_id is None:
             try:
-                prompt_session_id = st.session_state.current_prompt_session_id
+                prompt_session_id = self.memory.get_var("current_prompt_session_id")
             except Exception:
                 prompt_session_id = None
         
@@ -144,7 +144,7 @@ class HypothesisAgent(BaseAgent):
 
         # Get all selected options and their responses
         selected_options = []
-        for i in st.session_state.interactions:
+        for i in self.memory.get_var("interactions", []):
             if i.get("component") == "option_choice":
                 selected_options.append(f"Selected: {i.get('message')}")
             elif i.get("component") == "next_step_option_1":
@@ -168,7 +168,7 @@ class HypothesisAgent(BaseAgent):
 
     def get_context_for_followup(self):
         """ Get context from previous conversations for follow-up questions """
-        if st.session_state.conversation_events:
+        if self.memory.get_var("conversation_events", []):
             latest = self.memory.get_latest_history()
             payload = latest.get("payload", {})
             context = f"Previous question: {payload['question']}\n"
@@ -200,7 +200,7 @@ class HypothesisAgent(BaseAgent):
 
     def run_agent(self, memory):
         # If stop button is pressed, jump straight to hypothesis
-        if st.session_state.stop_hypothesis and st.session_state.stage != "analysis":
+        if memory.get_var("stop_hypothesis") and memory.get_var("stage") != "analysis":
             with st.chat_message("assistant"):
                 with st.spinner("Synthesizing hypothesis from current context..."):
                     try:
@@ -218,7 +218,7 @@ class HypothesisAgent(BaseAgent):
                         if not soc_q or not picked:
                             st.error(
                                 "Insufficient context to generate hypothesis. Please go through the conversation flow first.")
-                            st.session_state.stop_hypothesis = False
+                            memory.set_var("stop_hypothesis", False)
                             st.rerun()
 
                         # Build conversation context
@@ -253,23 +253,23 @@ class HypothesisAgent(BaseAgent):
                 st.success("🎉 Hypothesis generation complete (forced stop).")
 
             self.memory.insert_interaction("assistant", hypothesis, "hypothesis", "hypothesis")
-            st.session_state.last_hypothesis = hypothesis
-            st.session_state.hypothesis_ready = True
-            st.session_state.stop_hypothesis = False
-            st.session_state.stage = "analysis"
+            memory.last_hypothesis = hypothesis
+            memory.set_var("hypothesis_ready", True)
+            memory.set_var("stop_hypothesis", False)
+            memory.set_var("stage", "analysis")
             st.rerun()
 
         # Normal stages
-        if st.session_state.stage == "initial":
+        if memory.get_var("stage") == "initial":
             st.write("Welcome to the hypothesis agent! Please enter a question that you would like to explore further.")
 
             question = st.chat_input("Ask a question...")
 
             if question:
                 # Increment usage metrics on a new hypothesis run
-                st.session_state.agent_usage_counts["hypothesis"] = (
-                    st.session_state.agent_usage_counts.get("hypothesis", 0) + 1
-                )
+                counts = memory.get_var("agent_usage_counts", {})
+                counts["hypothesis"] = counts.get("hypothesis", 0) + 1
+                memory.set_var("agent_usage_counts", counts)
 
                 with st.chat_message("user"):
                     st.markdown(question)
@@ -309,7 +309,7 @@ class HypothesisAgent(BaseAgent):
                         st.markdown(f"**2.** {second_thought}")
                         st.markdown(f"**3.** {third_thought}")
 
-                        # Save interactions to both conversation_events and st.session_state.interactions
+                        # Save interactions to both conversation_events and memory.get_var("interactions", [])
                         self.memory.insert_interaction("user", question, "initial_question", "hypothesis")
                         self.memory.insert_interaction("assistant", cl_question, "clarified_question", "hypothesis")
                         self.memory.insert_interaction("assistant", soc_pass, "socratic_pass", "hypothesis")
@@ -322,12 +322,12 @@ class HypothesisAgent(BaseAgent):
 
                         # Initialize round count if starting hypothesis stage
                         if "hypothesis_round_count" not in st.session_state:
-                            st.session_state.hypothesis_round_count = 0
+                            memory.set_var("hypothesis_round_count", 0)
                         
-                        st.session_state.stage = "refine"
+                        memory.set_var("stage", "refine")
                         st.rerun()
 
-        elif st.session_state.stage == "refine":
+        elif memory.get_var("stage") == "refine":
             st.write("You are presented with three lines of distinct thoughts. Please choose the option that explores your initial question best.")
             user_choice = st.chat_input("Make a choice 1, 2, or 3...")
 
@@ -434,27 +434,27 @@ class HypothesisAgent(BaseAgent):
                         
                         # Transition to hypothesis stage and initialize round count
                         if "hypothesis_round_count" not in st.session_state:
-                            st.session_state.hypothesis_round_count = 0
+                            memory.set_var("hypothesis_round_count", 0)
                         
-                        st.session_state.stage = "hypothesis"
+                        memory.set_var("stage", "hypothesis")
                         st.rerun()
 
 
-        elif st.session_state.stage == "hypothesis":
+        elif memory.get_var("stage") == "hypothesis":
 
-            if st.session_state.experimental_mode:
-                st.session_state.stage = "refine"
+            if memory.get_var("experimental_mode"):
+                memory.set_var("stage", "refine")
                 st.rerun()
 
             # Check round count and max rounds
-            round_count = st.session_state.get("hypothesis_round_count", 0)
-            max_rounds = st.session_state.get("max_hypothesis_rounds", 5)
+            round_count = memory.get_var("hypothesis_round_count", 0)
+            max_rounds = memory.get_var("max_hypothesis_rounds", 5)
             
             # If we've reached max rounds, suggest generating hypothesis
             if round_count >= max_rounds:
                 st.warning(f"⚠️ Maximum exploration rounds ({max_rounds}) reached. Consider generating your hypothesis now.")
                 if st.button("Generate Hypothesis Now", type="primary", use_container_width=True):
-                    st.session_state.stop_hypothesis = True
+                    memory.set_var("stop_hypothesis", True)
                     st.rerun()
 
             st.write("**Standard Hypothesis Agent - Iterative Refinement Mode**")
@@ -486,19 +486,19 @@ class HypothesisAgent(BaseAgent):
 
                 if st.button("Ask Question"):
                     if additional_question.strip():
-                        st.session_state.pending_additional_question = additional_question
+                        memory.pending_additional_question = additional_question
                         st.rerun()
 
             # Option selection
             if user_input in ["1", "2", "3"]:
                 # Increment round count
-                round_count = st.session_state.get("hypothesis_round_count", 0)
-                max_rounds = st.session_state.get("max_hypothesis_rounds", 5)
+                round_count = memory.get_var("hypothesis_round_count", 0)
+                max_rounds = memory.get_var("max_hypothesis_rounds", 5)
                 
                 # Check if we've exceeded max rounds
                 if round_count >= max_rounds:
                     st.warning(f"Maximum rounds ({max_rounds}) reached. Generating hypothesis automatically...")
-                    st.session_state.stop_hypothesis = True
+                    memory.set_var("stop_hypothesis", True)
                     st.rerun()
                 
                 picked = {"1": opt1, "2": opt2, "3": opt3}[user_input]
@@ -540,7 +540,7 @@ class HypothesisAgent(BaseAgent):
                         # If ready, generate hypothesis instead of new options
                         if is_ready:
                             st.info("🤖 LLM determined sufficient information gathered. Generating hypothesis...")
-                            st.session_state.stop_hypothesis = True
+                            memory.set_var("stop_hypothesis", True)
                             st.rerun()
                         
                         _, new_opts = socratic.retry_thinking_deepen_thoughts(
@@ -554,13 +554,13 @@ class HypothesisAgent(BaseAgent):
                             st.markdown(f"**{i}.** {opt}")
 
                 # Increment round count
-                st.session_state.hypothesis_round_count = round_count + 1
-                st.session_state.stage = "hypothesis"
+                memory.set_var("hypothesis_round_count", round_count + 1)
+                memory.set_var("stage", "hypothesis")
                 st.rerun()
 
             # Additional question flow
-            if st.session_state.get("pending_additional_question"):
-                q = st.session_state.pop("pending_additional_question")
+            if memory.get_var("pending_additional_question"):
+                q = memory.pop("pending_additional_question")
                 with st.chat_message("user"):
                     st.markdown(q)
 
@@ -576,7 +576,7 @@ class HypothesisAgent(BaseAgent):
                 for i, t in enumerate(thoughts[:3], 1):
                     self.memory.insert_interaction("assistant", t, f"next_step_option_{i}", "hypothesis")
 
-                st.session_state.stage = "hypothesis"
+                memory.set_var("stage", "hypothesis")
                 st.rerun()
 
             # Generate final hypothesis
@@ -625,20 +625,20 @@ class HypothesisAgent(BaseAgent):
                                 self.memory.insert_interaction("assistant", analysis_rubric, "analysis_rubric", "hypothesis")
 
                 self.memory.insert_interaction("assistant", hypothesis, "hypothesis", "hypothesis")
-                st.session_state.last_hypothesis = hypothesis
-                st.session_state.hypothesis_ready = True
-                st.session_state.stage = "analysis"
+                memory.last_hypothesis = hypothesis
+                memory.set_var("hypothesis_ready", True)
+                memory.set_var("stage", "analysis")
                 st.rerun()
 
-        elif st.session_state.stage == "analysis":
+        elif memory.get_var("stage") == "analysis":
             # Transitions to Experiment agent
             if st.button("Generate Experimental Plan"):
-                st.session_state.next_agent = "experiment"
+                memory.set_var("next_agent", "experiment")
                 st.rerun()
 
             # Experimental mode should never reach analysis
-            if st.session_state.experimental_mode:
-                st.session_state.stage = "experimental_outputs"
+            if memory.get_var("experimental_mode"):
+                memory.set_var("stage", "experimental_outputs")
                 st.rerun()
 
             socratic = _lazy_import_socratic()
@@ -651,7 +651,7 @@ class HypothesisAgent(BaseAgent):
 
             if not hypothesis:
                 st.error("No hypothesis found. Please generate a hypothesis first.")
-                st.session_state.stage = "hypothesis"
+                memory.set_var("stage", "hypothesis")
                 st.rerun()
 
             with st.chat_message("assistant"):
@@ -669,13 +669,13 @@ class HypothesisAgent(BaseAgent):
             self.memory.insert_interaction("assistant", analysis_rubric, "analysis_rubric", "hypothesis")
             st.success("Analysis complete!")
 
-        elif st.session_state.stage == "followup":
+        elif memory.get_var("stage") == "followup":
 
             st.header("Follow-up Question")
 
             # Show previous context
-            if st.session_state.conversation_history:
-                latest = st.session_state.conversation_history[-1]
+            if memory.get_var("conversation_history", []):
+                latest = memory.get_var("conversation_history", [])[-1]
                 with st.expander("Previous Conversation Context", expanded=True):
                     st.markdown(f"**Previous Question:** {latest['question']}")
                     if latest.get("hypothesis"):
@@ -739,6 +739,6 @@ class HypothesisAgent(BaseAgent):
                     self.memory.insert_interaction("assistant", t, f"next_step_option_{i}", "hypothesis")
 
                 # Re-enter refinement loop
-                st.session_state.stage = "refine"
+                memory.set_var("stage", "refine")
                 st.rerun()
 

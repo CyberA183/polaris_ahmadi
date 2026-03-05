@@ -19,10 +19,10 @@ memory = MemoryManager()
 memory.init_session()
 
 # Initialize session state for well selection
-if "selected_wells" not in st.session_state:
-    st.session_state.selected_wells = set()
-if "plate_format" not in st.session_state:
-    st.session_state.plate_format = "96-well (8x12)"
+if memory.get_var("selected_wells") is None:
+    memory.set_var("selected_wells", set())
+if memory.get_var("plate_format") is None:
+    memory.set_var("plate_format", "96-well (8x12)")
 
 # Initialize curve fitting agent
 agent = CurveFittingAgent()
@@ -35,8 +35,8 @@ auto_triggered = False
 triggered_file = None
 
 # Track if we've already processed this trigger to avoid re-running
-if "last_processed_trigger_time" not in st.session_state:
-    st.session_state.last_processed_trigger_time = 0
+if memory.get_var("last_processed_trigger_time") is None:
+    memory.set_var("last_processed_trigger_time", 0)
 
 if trigger_info_file.exists():
     try:
@@ -48,16 +48,16 @@ if trigger_info_file.exists():
         time_since_trigger = time.time() - trigger_time
         
         # Process if triggered within last 5 minutes and not already processed
-        if time_since_trigger < 300 and trigger_time != st.session_state.last_processed_trigger_time:
+        if time_since_trigger < 300 and trigger_time != memory.get_var("last_processed_trigger_time", 0):
             auto_triggered = True
             triggered_file = trigger_info.get("triggered_file", "Unknown")
             timestamp = trigger_info.get("timestamp", "")
             inferred_params = trigger_info.get("parameters", {})
             
             # Mark as processed
-            st.session_state.last_processed_trigger_time = trigger_time
-            st.session_state.watcher_auto_triggered_file = triggered_file
-            st.session_state.watcher_auto_trigger_time = trigger_time
+            memory.set_var("last_processed_trigger_time", trigger_time)
+            memory.set_var("watcher_auto_triggered_file", triggered_file)
+            memory.set_var("watcher_auto_trigger_time", trigger_time)
             
             # Show banner
             st.success(
@@ -80,8 +80,8 @@ if trigger_info_file.exists():
                         try:
                             with open(latest_result, 'r') as f:
                                 result_data = json.load(f)
-                            st.session_state.auto_triggered_results = result_data
-                            st.session_state.auto_triggered_results_file = str(latest_result)
+                            memory.set_var("auto_triggered_results", result_data)
+                            memory.set_var("auto_triggered_results_file", str(latest_result))
                         except Exception:
                             pass
             
@@ -130,10 +130,10 @@ if trigger_info_file.exists():
                             st.info(f"Using default composition file: {default_comp_path.name}")
                     
                     # Store parameters in session state for the run_curve_fitting call below
-                    st.session_state.auto_run_curve_fitting = True
-                    st.session_state.auto_run_data_file = str(data_path)
-                    st.session_state.auto_run_comp_file = comp_file or ""
-                    st.session_state.auto_run_params = {
+                    memory.set_var("auto_run_curve_fitting", True)
+                    memory.set_var("auto_run_data_file", str(data_path))
+                    memory.set_var("auto_run_comp_file", comp_file or "")
+                    memory.set_var("auto_run_params", {
                         "max_peaks": max_peaks,
                         "r2_target": r2_target,
                         "max_attempts": max_attempts,
@@ -141,7 +141,7 @@ if trigger_info_file.exists():
                         "read_type": read_type,
                         "wells_to_analyze": wells_to_analyze,
                         "api_delay_seconds": api_delay,
-                    }
+                    })
                 else:
                     st.error(f"File not found: {triggered_file}")
         elif time_since_trigger >= 300:
@@ -155,10 +155,10 @@ st.title("📈 Curve Fitting")
 st.markdown("Upload CSV files, adjust parameters, and generate fitted curves with interactive visualizations.")
 
 # Check for automatic ML execution setting
-if "auto_ml_after_curve_fitting" not in st.session_state:
-    st.session_state.auto_ml_after_curve_fitting = False
-if "auto_route_to_analysis" not in st.session_state:
-    st.session_state.auto_route_to_analysis = False
+if memory.get_var("auto_ml_after_curve_fitting") is None:
+    memory.set_var("auto_ml_after_curve_fitting", False)
+if memory.get_var("auto_route_to_analysis") is None:
+    memory.set_var("auto_route_to_analysis", False)
 
 if st.button("Clear Cache and Restart Program"):
     st.cache_data.clear()
@@ -170,28 +170,28 @@ with st.expander("🔁 Workflow Automation Settings", expanded=False):
     with col_auto1:
         auto_ml_enabled = st.checkbox(
             "Auto-run ML model after curve fitting",
-            value=st.session_state.auto_ml_after_curve_fitting,
+            value=memory.get_var("auto_ml_after_curve_fitting", False),
             help="Automatically run the selected ML model when curve fitting completes",
             key="auto_ml_checkbox"
         )
-        st.session_state.auto_ml_after_curve_fitting = auto_ml_enabled
+        memory.set_var("auto_ml_after_curve_fitting", auto_ml_enabled)
     
     with col_auto2:
         auto_route_analysis = st.checkbox(
             "Auto-route to Analysis Agent after ML",
-            value=st.session_state.auto_route_to_analysis,
+            value=memory.get_var("auto_route_to_analysis", False),
             help="Automatically navigate to Analysis Agent after ML model completes",
             key="auto_route_checkbox"
         )
-        st.session_state.auto_route_to_analysis = auto_route_analysis
+        memory.set_var("auto_route_to_analysis", auto_route_analysis)
     
     if auto_ml_enabled:
-        selected_model = st.session_state.get("optimization_model_choice", "No model selected")
+        selected_model = memory.get_var("optimization_model_choice", "No model selected")
         st.info(f"Selected ML Model: **{selected_model}**")
         if selected_model == "No model selected":
             st.warning("Please select an ML model on the ML Models page first.")
 
-workflow_outputs = st.session_state.get("workflow_experiment_outputs")
+workflow_outputs = memory.get_var("workflow_experiment_outputs")
 if workflow_outputs:
     with st.expander("🧩 Workflow Context (Experiment Outputs)", expanded=False):
         plan = workflow_outputs.get("plan") or ""
@@ -733,11 +733,13 @@ def render_well_plate(format_name):
         if st.button("Select All", key="select_all_wells", width='stretch'):
             for r in rows:
                 for c in cols:
-                    st.session_state.selected_wells.add(f"{r}{c}")
+                    wells = memory.get_var("selected_wells", set())
+                    wells.add(f"{r}{c}")
+                    memory.set_var("selected_wells", wells)
             st.rerun()
     with c2:
         if st.button("Clear All", key="clear_all_wells", width='stretch'):
-            st.session_state.selected_wells = set()
+            memory.set_var("selected_wells", set())
             st.rerun()
 
     # Compact grid rendering with tighter spacing
@@ -756,7 +758,7 @@ def render_well_plate(format_name):
             st.markdown(f"<small><b>{r}</b></small>", unsafe_allow_html=True)
         for i, c in enumerate(cols):
             well_id = f"{r}{c}"
-            is_selected = well_id in st.session_state.selected_wells
+            is_selected = well_id in memory.get_var("selected_wells", set())
             with row_cols[i+1]:
                 if st.button(
                     "",  # Empty button - no text inside circle
@@ -766,19 +768,23 @@ def render_well_plate(format_name):
                     width='stretch'
                 ):
                     if is_selected:
-                        st.session_state.selected_wells.remove(well_id)
+                        wells = memory.get_var("selected_wells", set())
+                        wells.discard(well_id)
+                        memory.set_var("selected_wells", wells)
                     else:
-                        st.session_state.selected_wells.add(well_id)
+                        wells = memory.get_var("selected_wells", set())
+                        wells.add(well_id)
+                        memory.set_var("selected_wells", wells)
                     st.rerun()
 
 # File upload section
 st.header("📁 Data Upload")
 
 # Initialize session state for uploaded files
-if "cf_data_file" not in st.session_state:
-    st.session_state.cf_data_file = None
-if "cf_composition_file" not in st.session_state:
-    st.session_state.cf_composition_file = None
+if memory.get_var("cf_data_file") is None:
+    memory.set_var("cf_data_file", None)
+if memory.get_var("cf_composition_file") is None:
+    memory.set_var("cf_composition_file", None)
 
 col1, col2 = st.columns(2)
 
@@ -790,7 +796,7 @@ with col1:
         key="cf_data_uploader"
     )
     if data_file:
-        st.session_state.cf_data_file = data_file
+        memory.set_var("cf_data_file", data_file)
         file_type = "Excel" if data_file.name.lower().endswith(('.xlsx', '.xls')) else "CSV"
         st.success(f"Data file uploaded: {data_file.name} ({file_type})")
 
@@ -802,7 +808,7 @@ with col2:
         key="cf_composition_uploader"
     )
     if composition_file:
-        st.session_state.cf_composition_file = composition_file
+        memory.set_var("cf_composition_file", composition_file)
         st.success(f"Composition file uploaded: {composition_file.name}")
     else:
         # Show info about default file
@@ -813,8 +819,8 @@ with col2:
             st.warning(f"Default composition file not found at: `{default_comp_path}`")
 
 # Use stored files if available
-data_file = st.session_state.cf_data_file
-composition_file = st.session_state.cf_composition_file
+data_file = memory.get_var("cf_data_file")
+composition_file = memory.get_var("cf_composition_file")
 
 # Show current file status
 if data_file or composition_file:
@@ -923,7 +929,7 @@ with col2:
 with col3:
     st.markdown("**Well Selection Mode**")
     plate_format_options = ["96-well (8x12)", "35-well (5x7)", "Insitu Well (Acquisitions)"]
-    current_format = st.session_state.get('plate_format', "96-well (8x12)")
+    current_format = memory.get_var("plate_format", "96-well (8x12)")
     default_index = 0
     if current_format == "35-well (5x7)":
         default_index = 1
@@ -936,14 +942,14 @@ with col3:
         index=default_index,
         key="plate_format_selector"
     )
-    if plate_format != st.session_state.plate_format:
-        st.session_state.plate_format = plate_format
+    if plate_format != memory.get_var("plate_format"):
+        memory.set_var("plate_format", plate_format)
         # Optional: Clear selection when changing format
-        # st.session_state.selected_wells = set()
+        # memory.selected_wells = set()
         st.rerun()
     
     # Compact well plate selector right below format selection
-    render_well_plate(st.session_state.plate_format)
+    render_well_plate(memory.get_var("plate_format") or "96-well (8x12)")
 
     save_plots = st.checkbox("Save Fitting Plots", value=True, help="Generate and save fitting visualization plots")
     
@@ -1033,17 +1039,17 @@ with col1:
 
 with col2:
     if st.button("Clear Files", width='stretch'):
-        st.session_state.cf_data_file = None
-        st.session_state.cf_composition_file = None
+        memory.set_var("cf_data_file", None)
+        memory.set_var("cf_composition_file", None)
         st.rerun()
 
 # Check if we should auto-run from watcher trigger
-auto_run_triggered = st.session_state.get("auto_run_curve_fitting", False)
+auto_run_triggered = memory.get_var("auto_run_curve_fitting", False)
 
 if run_button or auto_run_triggered:
     # If auto-running, use the triggered file
     if auto_run_triggered:
-        triggered_file_path = st.session_state.auto_run_data_file
+        triggered_file_path = memory.get_var("auto_run_data_file")
         # Create a file-like object from the path for compatibility
         class FileFromPath:
             def __init__(self, path):
@@ -1061,25 +1067,25 @@ if run_button or auto_run_triggered:
                     raise FileNotFoundError(f"File not found: {self.path}")
         
         data_file = FileFromPath(triggered_file_path)
-        st.session_state.cf_data_file = data_file
+        memory.set_var("cf_data_file", data_file)
         composition_file = None
-        if st.session_state.auto_run_comp_file:
-            composition_file = FileFromPath(st.session_state.auto_run_comp_file)
-            st.session_state.cf_composition_file = composition_file
-    elif not st.session_state.cf_data_file:
+        if memory.get_var("auto_run_comp_file"):
+            composition_file = FileFromPath(memory.get_var("auto_run_comp_file"))
+            memory.set_var("cf_composition_file", composition_file)
+    elif not memory.get_var("cf_data_file"):
         st.error("❌ Please upload a spectral data file (CSV or Excel) before running analysis.")
         st.stop()
     else:
-        data_file = st.session_state.cf_data_file
-        composition_file = st.session_state.cf_composition_file
+        data_file = memory.get_var("cf_data_file")
+        composition_file = memory.get_var("cf_composition_file")
 
-    if not st.session_state.get('api_key'):
+    if not memory.get_var("api_key"):
         st.error("❌ Please set your Google Gemini API key in Settings before running analysis.")
         st.stop()
 
     # Get files from session state
-    data_file = st.session_state.cf_data_file
-    composition_file = st.session_state.cf_composition_file
+    data_file = memory.get_var("cf_data_file")
+    composition_file = memory.get_var("cf_composition_file")
     
     # Check if data file is Excel
     is_excel = data_file.name.lower().endswith(('.xlsx', '.xls'))
@@ -1094,7 +1100,7 @@ if run_button or auto_run_triggered:
             try:
                 st.info("Converting Excel file to CSV format...")
                 # Get plate format from session state if available
-                plate_format = st.session_state.get('plate_format', None)
+                plate_format = memory.get_var("plate_format", None)
                 
                 # Get file content - handle both file uploader and FileFromPath
                 if hasattr(data_file, 'getvalue'):
@@ -1256,7 +1262,7 @@ if run_button or auto_run_triggered:
 
         # Determine wells to analyze based on visual selection
         # If no wells selected, default to all wells (passing None to the agent)
-        wells_to_analyze = list(st.session_state.selected_wells) if st.session_state.selected_wells else None
+        wells_to_analyze = list(memory.get_var("selected_wells") or set()) if memory.get_var("selected_wells") else None
         
         # Determine read type for filtering
         read_type_filter = "em_spectrum" if "PL" in read_type else "absorbance"
@@ -1318,9 +1324,9 @@ if run_button or auto_run_triggered:
             st.stop()
 
         # Check if we should auto-run curve fitting from watcher trigger
-        if st.session_state.get("auto_run_curve_fitting", False):
+        if memory.get_var("auto_run_curve_fitting", False):
             # Use auto-run parameters but keep the temp CSV paths we just created
-            auto_params = st.session_state.auto_run_params or {}
+            auto_params = memory.get_var("auto_run_params") or {}
             wells_to_analyze = auto_params.get("wells_to_analyze")
             # Auto-guess wells from file metadata (Full Plate, A1..A7, 35 slideglass) when not specified
             if wells_to_analyze is None and data_path:
@@ -1337,7 +1343,7 @@ if run_button or auto_run_triggered:
             api_delay_seconds = auto_params.get("api_delay_seconds", 0.5)
 
             # Clear the auto-run flag
-            st.session_state.auto_run_curve_fitting = False
+            memory.set_var("auto_run_curve_fitting", False)
 
             # Show that we're running automatically
             st.info("Auto-running curve fitting with detected file...")
@@ -1351,7 +1357,7 @@ if run_button or auto_run_triggered:
 
             # Run the analysis
             # Check if this is an auto-triggered run
-            is_auto_trigger = st.session_state.get("auto_run_curve_fitting", False) or auto_triggered
+            is_auto_trigger = memory.get_var("auto_run_curve_fitting", False) or auto_triggered
             
             result = agent.run_curve_fitting(
                 data_csv_path=data_path,
@@ -1396,21 +1402,21 @@ if run_button or auto_run_triggered:
                     st.warning(f"Could not persist input files for ML: {e}")
 
                 # Store paths for ML automation and ML Models page
-                st.session_state.workflow_curve_fitting_files = {
+                memory.set_var("workflow_curve_fitting_files", {
                     "results_json": result.get("files", {}).get("json_results"),
                     "results_csv": result.get("files", {}).get("csv_export"),
                     "composition_csv": str(composition_copy) if composition_copy.exists() else None,
                     "spectral_csv": str(spectral_copy) if spectral_copy.exists() else None,
-                }
-                st.session_state.ml_auto_json_path = result.get("files", {}).get("json_results")
-                st.session_state.ml_auto_csv_path = result.get("files", {}).get("csv_export")
-                st.session_state.ml_auto_composition_path = (
+                })
+                memory.set_var("ml_auto_json_path", result.get("files", {}).get("json_results"))
+                memory.set_var("ml_auto_csv_path", result.get("files", {}).get("csv_export"))
+                memory.set_var("ml_auto_composition_path", (
                     str(composition_copy) if composition_copy.exists() else None
-                )
+                ))
                 
                 # Auto-switch to ML Models page when automation enabled (do NOT run ML here)
-                workflow_auto_flags = st.session_state.get("workflow_auto_flags", {})
-                manual_workflow = st.session_state.get("manual_workflow", [])
+                workflow_auto_flags = memory.get_var("workflow_auto_flags", {})
+                manual_workflow = memory.get_var("manual_workflow", [])
                 try:
                     cf_idx = manual_workflow.index("Curve Fitting")
                     next_step_index = cf_idx + 1
@@ -1423,12 +1429,12 @@ if run_button or auto_run_triggered:
                     and workflow_auto_flags.get("ML Models", False)
                 )
                 auto_ml_enabled = (
-                    st.session_state.get("auto_ml_after_curve_fitting", False)
+                    memory.get_var("auto_ml_after_curve_fitting", False)
                     or ml_auto_from_workflow
                 )
                 if auto_ml_enabled:
-                    st.session_state.workflow_curve_fitting_completed = True
-                    st.session_state.workflow_step = "ml_models"
+                    memory.set_var("workflow_curve_fitting_completed", True)
+                    memory.set_var("workflow_step", "ml_models")
                     st.success("Curve fitting complete. Switching to ML Models...")
                     st.switch_page("pages/ml_models.py")
 
@@ -1551,9 +1557,9 @@ if run_button or auto_run_triggered:
                             )
 
                 # Workflow: offer manual Continue button (no auto-switch)
-                if st.session_state.get("workflow_active"):
-                    st.session_state.workflow_curve_fitting_completed = True
-                    st.session_state.workflow_step = "ml_models"
+                if memory.get_var("workflow_active"):
+                    memory.set_var("workflow_curve_fitting_completed", True)
+                    memory.set_var("workflow_step", "ml_models")
                     st.divider()
                     if st.button("Continue to ML Models →", type="primary", use_container_width=True, key="cf_continue_ml"):
                         st.switch_page("pages/ml_models.py")

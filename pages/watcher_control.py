@@ -34,48 +34,48 @@ with tabs[0]:
     with col_cfg1:
         watcher_directory = st.text_input(
             "Watcher Directory:",
-            value=st.session_state.get("watcher_directory", r"C:\Users\shery\OneDrive - University of Tennessee\Data Experiment files"),
+            value=memory.get_var("watcher_directory", r"C:\Users\shery\OneDrive - University of Tennessee\Data Experiment files"),
             help="Full path to directory that the watcher should monitor for file changes. Do not include quotes.",
             key="watcher_dir_input"
         )
         watcher_directory = watcher_directory.strip().strip('"').strip("'")
-        st.session_state.watcher_directory = watcher_directory
+        memory.set_var("watcher_directory", watcher_directory)
 
         watcher_results_dir = st.text_input(
             "Results Directory:",
-            value=st.session_state.get("watcher_results_dir", "results"),
+            value=memory.get_var("watcher_results_dir", "results"),
             help="Directory where curve fitting results are saved",
             key="watcher_results_dir_input"
         )
-        st.session_state.watcher_results_dir = watcher_results_dir
+        memory.set_var("watcher_results_dir", watcher_results_dir)
 
     with col_cfg2:
         watcher_enabled = st.checkbox(
             "Enable Watcher",
-            value=st.session_state.get("watcher_enabled", False),
+            value=memory.get_var("watcher_enabled", False),
             help="Enable automatic file system watching for workflow automation",
             key="watcher_enabled_input"
         )
-        st.session_state.watcher_enabled = watcher_enabled
+        memory.set_var("watcher_enabled", watcher_enabled)
 
         watcher_port = st.number_input(
             "Watcher Server Port:",
             min_value=1000,
             max_value=9999,
-            value=st.session_state.get("watcher_port", 8000),
+            value=memory.get_var("watcher_port", 8000),
             help="Port for the watcher HTTP server",
             key="watcher_port_input"
         )
-        st.session_state.watcher_port = watcher_port
+        memory.set_var("watcher_port", watcher_port)
 
     st.divider()
 
     # Get watcher configuration from settings
-    watcher_enabled = st.session_state.get("watcher_enabled", False)
-    watcher_directory = st.session_state.get("watcher_directory", r"C:\Users\shery\OneDrive - University of Tennessee\Data Experiment files")
+    watcher_enabled = memory.get_var("watcher_enabled", False)
+    watcher_directory = memory.get_var("watcher_directory", r"C:\Users\shery\OneDrive - University of Tennessee\Data Experiment files")
     # Strip quotes if present
     watcher_directory = watcher_directory.strip().strip('"').strip("'")
-    watcher_port = st.session_state.get("watcher_port", 8000)
+    watcher_port = memory.get_var("watcher_port", 8000)
     watcher_server_url = f"http://localhost:{watcher_port}"
 
     st.info(f"**Watcher Server URL:** `{watcher_server_url}`")
@@ -122,7 +122,7 @@ def start_watcher_server():
             pass
         
         # Get API key from session state
-        api_key = st.session_state.get("api_key", "")
+        api_key = memory.get_var("api_key", "")
         if not api_key:
             return False, "No API key found. Please set your API key in Settings → General tab."
         
@@ -164,10 +164,10 @@ def start_watcher_server():
         )
         
         # Store process handle and log file path in session state
-        st.session_state.watcher_server_process = process
-        st.session_state.watcher_server_pid = process.pid
-        st.session_state.watcher_log_file = str(log_file)
-        st.session_state.watcher_log_file_handle = log_file_handle
+        memory.set_var("watcher_server_process", process)
+        memory.set_var("watcher_server_pid", process.pid)
+        memory.set_var("watcher_log_file", str(log_file))
+        memory.set_var("watcher_log_file_handle", log_file_handle)
         
         # Wait a moment for server to start
         time.sleep(2)
@@ -220,16 +220,16 @@ def stop_watcher_server():
                 logger.debug(f"Could not kill process on port 8000: {e}")
         
         # Close log file handle if open
-        if "watcher_log_file_handle" in st.session_state:
+        if memory.get_var("watcher_log_file_handle") is not None:
             try:
-                st.session_state.watcher_log_file_handle.close()
+                memory.get_var("watcher_log_file_handle").close()
             except:
                 pass
-            del st.session_state.watcher_log_file_handle
+            memory.delete_var("watcher_log_file_handle")
         
         # Then terminate the process if we have a handle
-        if "watcher_server_process" in st.session_state:
-            process = st.session_state.watcher_server_process
+        if memory.get_var("watcher_server_process") is not None:
+            process = memory.get_var("watcher_server_process")
             try:
                 if sys.platform == "win32":
                     # On Windows, use terminate() which sends SIGTERM
@@ -246,11 +246,11 @@ def stop_watcher_server():
                     process.kill()
                     process.wait()
                 
-                del st.session_state.watcher_server_process
-                if "watcher_server_pid" in st.session_state:
-                    del st.session_state.watcher_server_pid
-                if "watcher_log_file" in st.session_state:
-                    del st.session_state.watcher_log_file
+                memory.delete_var("watcher_server_process")
+                if memory.get_var("watcher_server_pid") is not None:
+                    memory.delete_var("watcher_server_pid")
+                if memory.get_var("watcher_log_file") is not None:
+                    memory.delete_var("watcher_log_file")
                 
                 return True, "Server stopped successfully"
             except Exception as e:
@@ -277,7 +277,7 @@ with tabs[1]:
         if response.status_code == 200:
             health_data = response.json()
             server_running = True
-            st.session_state.watcher_server_running = True
+            memory.set_var("watcher_server_running", True)
             st.success("Watcher server is running")
             
             observer_running = health_data.get("observer_running", False)
@@ -297,26 +297,26 @@ with tabs[1]:
             server_status = "running"
         else:
             st.error("Watcher server responded with error")
-            st.session_state.watcher_server_running = False
+            memory.set_var("watcher_server_running", False)
             server_status = "error"
     except requests.exceptions.RequestException:
         server_running = False
-        st.session_state.watcher_server_running = False
+        memory.set_var("watcher_server_running", False)
         server_status = "stopped"
         
         # Check if we have a process handle but server isn't responding
-        if "watcher_server_process" in st.session_state:
-            process = st.session_state.watcher_server_process
+        if memory.get_var("watcher_server_process") is not None:
+            process = memory.get_var("watcher_server_process")
             if process.poll() is None:
                 # Process is still running but server not responding
                 st.warning("Server process exists but not responding. Try stopping and restarting.")
             else:
                 # Process has died
                 st.warning("Server process has stopped. You can start it again below.")
-                if "watcher_server_process" in st.session_state:
-                    del st.session_state.watcher_server_process
-                if "watcher_server_pid" in st.session_state:
-                    del st.session_state.watcher_server_pid
+                if memory.get_var("watcher_server_process") is not None:
+                    memory.delete_var("watcher_server_process")
+                if memory.get_var("watcher_server_pid") is not None:
+                    memory.delete_var("watcher_server_pid")
         st.info("Server is not running. Use the buttons below to start it.")
 
     st.divider()
@@ -491,8 +491,8 @@ with tabs[3]:
 
     # Get log file path
     log_file_path = None
-    if "watcher_log_file" in st.session_state:
-        log_file_path = Path(st.session_state.watcher_log_file)
+    if memory.get_var("watcher_log_file"):
+        log_file_path = Path(memory.get_var("watcher_log_file", ""))
     elif server_running:
         # Try to find the most recent log file
         current_file = Path(__file__)

@@ -21,8 +21,8 @@ if trigger_info_file.exists():
         # This gives more time for curve fitting to complete
         if time_since_trigger < 300:
             triggered_file = trigger_info.get("triggered_file", "")
-            st.session_state.watcher_auto_triggered_file = triggered_file
-            st.session_state.watcher_auto_trigger_time = trigger_time
+            memory.set_var("watcher_auto_triggered_file", triggered_file)
+            memory.set_var("watcher_auto_trigger_time", trigger_time)
             
             # Show a brief message before navigating
             st.info("**Auto-triggered curve fitting detected!** Navigating to results...")

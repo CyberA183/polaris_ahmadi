@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -47,19 +48,17 @@ AVAILABLE_STEPS = {
     },
 }
 
-# Initialize workflow storage
-if "workflows" not in st.session_state:
-    st.session_state.workflows = {}
+# Initialize workflow storage (from DB)
+workflows = memory.get_var("workflows") or {}
+current_workflow = memory.get_var("current_workflow")
+if current_workflow is None:
+    memory.set_var("current_workflow", {"name": "Default Workflow", "steps": [], "active": False})
+    current_workflow = memory.get_var("current_workflow")
 
-if "current_workflow" not in st.session_state:
-    st.session_state.current_workflow = {
-        "name": "Default Workflow",
-        "steps": [],
-        "active": False,
-    }
-
-if "workflow_steps" not in st.session_state:
-    st.session_state.workflow_steps = []
+workflow_steps = memory.get_var("workflow_steps")
+if workflow_steps is None:
+    memory.set_var("workflow_steps", [])
+    workflow_steps = []
 
 
 def save_workflow(
@@ -67,58 +66,51 @@ def save_workflow(
     steps: List[Dict[str, Any]],
     ml_model_choice: Optional[str] = None,
 ):
-    """Save workflow to session state."""
-    st.session_state.workflows[workflow_name] = {
-        "name": workflow_name,
-        "steps": steps,
-        "ml_model_choice": ml_model_choice,
-        "created_at": st.session_state.get("workflow_created_at", ""),
-    }
+    """Save workflow to database."""
+    memory.save_workflow(workflow_name, steps, ml_model_choice)
+    memory.set_var("workflow_created_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
 
 def load_workflow(workflow_name: str) -> Optional[Dict[str, Any]]:
-    """Load workflow from session state."""
-    return st.session_state.workflows.get(workflow_name)
+    """Load workflow from database."""
+    return memory.load_workflow(workflow_name)
 
 
 def apply_workflow(workflow_name: str):
-    """Apply workflow settings to session state."""
+    """Apply workflow settings to storage."""
     workflow = load_workflow(workflow_name)
     if workflow:
-        # Set manual workflow
         step_names = [step["name"] for step in workflow["steps"]]
-        st.session_state.manual_workflow = step_names
+        memory.set_var("manual_workflow", step_names)
 
-        # Set automatic execution flags
         auto_flags = {}
         for step in workflow["steps"]:
             if step.get("automatic", False):
                 auto_flags[step["name"]] = True
 
-        st.session_state.workflow_auto_flags = auto_flags
-        st.session_state.current_workflow_name = workflow_name
+        memory.set_var("workflow_auto_flags", auto_flags)
+        memory.set_var("current_workflow_name", workflow_name)
 
-        # Set ML model choice for this workflow
         ml_model_choice = workflow.get("ml_model_choice")
         if ml_model_choice:
-            st.session_state.workflow_ml_model_choice = ml_model_choice
-            st.session_state.optimization_model_choice = ml_model_choice
+            memory.set_var("workflow_ml_model_choice", ml_model_choice)
+            memory.set_var("optimization_model_choice", ml_model_choice)
 
         st.success(f"Workflow '{workflow_name}' applied!")
 
 
 def _reset_workflow_state() -> None:
-    st.session_state.workflow_active = True
-    st.session_state.workflow_step = "hypothesis"
-    st.session_state.workflow_completed = False
-    st.session_state.workflow_experiment_started = False
-    st.session_state.workflow_experiment_completed = False
-    st.session_state.workflow_experiment_outputs = None
-    st.session_state.workflow_curve_fitting_completed = False
-    st.session_state.experimental_outputs = None
-    st.session_state.hypothesis_ready = False
-    st.session_state.stop_hypothesis = False
-    st.session_state.stage = "initial"
+    memory.set_var("workflow_active", True)
+    memory.set_var("workflow_step", "hypothesis")
+    memory.set_var("workflow_completed", False)
+    memory.set_var("workflow_experiment_started", False)
+    memory.set_var("workflow_experiment_completed", False)
+    memory.set_var("workflow_experiment_outputs", None)
+    memory.set_var("workflow_curve_fitting_completed", False)
+    memory.set_var("experimental_outputs", None)
+    memory.set_var("hypothesis_ready", False)
+    memory.set_var("stop_hypothesis", False)
+    memory.set_var("stage", "initial")
 
 
 tab_run, tab_build, tab_demo = st.tabs(["Run Workflow", "Build Workflow", "🧪 Demo"])
@@ -140,7 +132,7 @@ with tab_demo:
                 # Generate spectral + composition CSV
                 spectral_path, comp_path = generate_demo_dataset(n_wells=15, output_dir=output_dir)
                 wells_demo = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11", "A12", "B1", "B2", "B3"]
-                st.session_state.selected_wells = set(wells_demo)
+                memory.set_var("selected_wells", set(wells_demo))
 
                 # ---- Pre-populate Hypothesis Agent outputs (memory) ----
                 demo_hypothesis = (
@@ -155,11 +147,11 @@ with tab_demo:
                 memory.insert_interaction("assistant", demo_hypothesis, "hypothesis", "demo")
                 memory.insert_interaction("user", demo_clarified, "clarified_question", "demo")
                 memory.insert_interaction("assistant", demo_socratic, "socratic_pass", "demo")
-                st.session_state.hypothesis_ready = True
-                st.session_state.last_hypothesis = demo_hypothesis
+                memory.set_var("hypothesis_ready", True)
+                memory.set_var("last_hypothesis", demo_hypothesis)
 
                 # ---- Pre-populate Experiment Agent outputs ----
-                max_vol = st.session_state.experimental_constraints.get("liquid_handling", {}).get("max_volume_per_mixture", 50)
+                max_vol = memory.get_var("experimental_constraints", {}).get("liquid_handling", {}).get("max_volume_per_mixture", 50)
                 worklist_csv = generate_demo_worklist(comp_path, max_vol)
                 demo_plan = (
                     "Initial screening of 15 PEA2PbI4/FAPbI3 compositions across A1–B3. "
@@ -171,15 +163,15 @@ with tab_demo:
                     "layout": "A1–A12, B1–B3 (96-well plate)",
                     "protocol": "PL measurement protocol (synthetic demo).",
                 }
-                st.session_state.experimental_outputs = demo_outputs
-                st.session_state.workflow_experiment_outputs = demo_outputs
+                memory.set_var("experimental_outputs", demo_outputs)
+                memory.set_var("workflow_experiment_outputs", demo_outputs)
 
                 # ---- Configure curve fitting → ML → Analysis flow ----
-                st.session_state.demo_workflow_running = True
-                st.session_state.auto_run_curve_fitting = True
-                st.session_state.auto_run_data_file = spectral_path
-                st.session_state.auto_run_comp_file = comp_path
-                st.session_state.auto_run_params = {
+                memory.set_var("demo_workflow_running", True)
+                memory.set_var("auto_run_curve_fitting", True)
+                memory.set_var("auto_run_data_file", spectral_path)
+                memory.set_var("auto_run_comp_file", comp_path)
+                memory.set_var("auto_run_params", {
                     "wells_to_analyze": wells_demo,
                     "reads_to_analyze": "1",
                     "read_type": "em_spectrum",
@@ -187,27 +179,27 @@ with tab_demo:
                     "r2_target": 0.90,
                     "max_attempts": 3,
                     "api_delay_seconds": 0.5,
-                }
-                st.session_state.manual_workflow = [
+                })
+                memory.set_var("manual_workflow", [
                     "Hypothesis Agent", "Experiment Agent", "Curve Fitting",
                     "ML Models", "Analysis Agent", "Experiment Agent"
-                ]
-                st.session_state.workflow_auto_flags = {
+                ])
+                memory.set_var("workflow_auto_flags", {
                     "Curve Fitting": False,
                     "ML Models": False,
                     "Analysis Agent": False,
-                }
-                st.session_state.workflow_ml_model_choice = "Single-objective GP (scikit-learn)"
-                st.session_state.optimization_model_choice = "Single-objective GP (scikit-learn)"
-                st.session_state.ml_model_config = {"target": "peak_1_wavelength", "beta": 2.0, "n_candidates": 20}
-                st.session_state.auto_ml_after_curve_fitting = True
-                st.session_state.auto_route_to_analysis = False
-                st.session_state.research_goal = (
+                })
+                memory.set_var("workflow_ml_model_choice", "Single-objective GP (scikit-learn)")
+                memory.set_var("optimization_model_choice", "Single-objective GP (scikit-learn)")
+                memory.set_var("ml_model_config", {"target": "peak_1_wavelength", "beta": 2.0, "n_candidates": 20})
+                memory.set_var("auto_ml_after_curve_fitting", True)
+                memory.set_var("auto_route_to_analysis", False)
+                memory.set_var("research_goal", (
                     "Optimize PL peak wavelength for target emission. "
                     "Synthetic data has peaks varying 450–850 nm with composition."
-                )
-                st.session_state.workflow_active = True
-                st.session_state.workflow_step = "curve_fitting"
+                ))
+                memory.set_var("workflow_active", True)
+                memory.set_var("workflow_step", "curve_fitting")
 
                 st.success("All agents primed. You control the flow — run Curve Fitting, then use Continue buttons to move forward.")
                 st.switch_page("pages/curve_fitting.py")
@@ -224,20 +216,20 @@ with tab_run:
     routing_mode = st.segmented_control(
         "Routing Mode",
         options=["Autonomous (LLM)", "Manual"],
-        default=st.session_state.get("routing_mode", "Autonomous (LLM)"),
+        default=memory.get_var("routing_mode", "Autonomous (LLM)"),
     )
-    st.session_state.routing_mode = routing_mode
+    memory.set_var("routing_mode", routing_mode)
 
     if routing_mode == "Manual":
         st.info("Manual routing uses the active workflow order from the Builder tab.")
-        current_workflow = st.session_state.get("manual_workflow", [])
+        current_workflow = memory.get_var("manual_workflow", [])
         if current_workflow:
             st.caption(f"Current manual workflow: {', '.join(current_workflow)}")
         else:
             st.warning("No manual workflow applied yet. Build and apply a workflow first.")
 
         if st.button("Reset Workflow Progress", use_container_width=True):
-            st.session_state.workflow_index = 0
+            memory.set_var("workflow_index", 0)
             st.success("Workflow progress reset. The next routed call will start at Step 1.")
 
     st.divider()
@@ -251,37 +243,37 @@ with tab_run:
             st.switch_page("pages/hypothesis.py")
     with col_stop:
         if st.button("Stop Workflow", use_container_width=True):
-            st.session_state.workflow_active = False
-            st.session_state.workflow_step = "idle"
+            memory.set_var("workflow_active", False)
+            memory.set_var("workflow_step", "idle")
             st.toast("Workflow stopped.")
             st.rerun()
 
-    if not st.session_state.get("workflow_active", False):
+    if not memory.get_var("workflow_active", False):
         st.info("Start the workflow to begin the Hypothesis Agent.")
     else:
-        st.markdown(f"**Current Step:** `{st.session_state.workflow_step}`")
+        st.markdown(f"**Current Step:** `{memory.get_var('workflow_step')}`")
         st.markdown("Navigate to any step — no automatic redirect. You control the flow.")
         st.divider()
         nav_cols = st.columns(5)
         with nav_cols[0]:
             if st.button("🧠 Hypothesis", use_container_width=True, key="nav_hypothesis"):
-                st.session_state.workflow_step = "hypothesis"
+                memory.set_var("workflow_step", "hypothesis")
                 st.switch_page("pages/hypothesis.py")
         with nav_cols[1]:
             if st.button("🧪 Experiment", use_container_width=True, key="nav_experiment"):
-                st.session_state.workflow_step = "experiment"
+                memory.set_var("workflow_step", "experiment")
                 st.switch_page("pages/experiment.py")
         with nav_cols[2]:
             if st.button("📈 Curve Fitting", use_container_width=True, key="nav_curve"):
-                st.session_state.workflow_step = "curve_fitting"
+                memory.set_var("workflow_step", "curve_fitting")
                 st.switch_page("pages/curve_fitting.py")
         with nav_cols[3]:
             if st.button("🤖 ML Models", use_container_width=True, key="nav_ml"):
-                st.session_state.workflow_step = "ml_models"
+                memory.set_var("workflow_step", "ml_models")
                 st.switch_page("pages/ml_models.py")
         with nav_cols[4]:
             if st.button("🔎 Analysis", use_container_width=True, key="nav_analysis"):
-                st.session_state.workflow_step = "analysis"
+                memory.set_var("workflow_step", "analysis")
                 st.switch_page("pages/analysis.py")
 
 with tab_build:
@@ -293,25 +285,25 @@ with tab_build:
         st.header(" Saved Workflows")
 
         # List saved workflows
-        if st.session_state.workflows:
-            for wf_name in st.session_state.workflows.keys():
+        workflows = memory.get_var("workflows") or {}
+        if workflows:
+            for wf_name in workflows.keys():
                 col1, col2 = st.columns([3, 1])
                 with col1:
                     if st.button(f"Load {wf_name}", key=f"load_{wf_name}", use_container_width=True):
                         workflow = load_workflow(wf_name)
                         if workflow:
-                            st.session_state.current_workflow = workflow
-                            st.session_state.workflow_steps = workflow["steps"]
-                            # Restore ML model choice if it exists
+                            memory.set_var("current_workflow", workflow)
+                            memory.set_var("workflow_steps", workflow["steps"])
                             if workflow.get("ml_model_choice"):
-                                st.session_state.workflow_ml_model_choice = workflow["ml_model_choice"]
+                                memory.set_var("workflow_ml_model_choice", workflow["ml_model_choice"])
                             st.rerun()
                 with col2:
                     if st.button("Delete", key=f"delete_{wf_name}", help=f"Delete {wf_name}"):
-                        del st.session_state.workflows[wf_name]
-                        if st.session_state.get("current_workflow_name") == wf_name:
-                            st.session_state.current_workflow = {"name": "Default Workflow", "steps": []}
-                            st.session_state.workflow_steps = []
+                        memory.delete_workflow(wf_name)
+                        if memory.get_var("current_workflow_name") == wf_name:
+                            memory.set_var("current_workflow", {"name": "Default Workflow", "steps": []})
+                            memory.set_var("workflow_steps", [])
                         st.rerun()
         else:
             st.info("No saved workflows yet.")
@@ -320,8 +312,8 @@ with tab_build:
 
         # Create new workflow
         if st.button("New Workflow", use_container_width=True):
-            st.session_state.current_workflow = {"name": "New Workflow", "steps": []}
-            st.session_state.workflow_steps = []
+            memory.set_var("current_workflow", {"name": "New Workflow", "steps": []})
+            memory.set_var("workflow_steps", [])
             st.rerun()
 
     # Main workflow builder
@@ -330,22 +322,26 @@ with tab_build:
     # Workflow name
     col_name1, col_name2 = st.columns([3, 1])
     with col_name1:
+        current_workflow = memory.get_var("current_workflow") or {}
+        workflow_steps = memory.get_var("workflow_steps") or []
         workflow_name = st.text_input(
             "Workflow Name",
-            value=st.session_state.current_workflow.get("name", "My Workflow"),
+            value=current_workflow.get("name", "My Workflow"),
             key="workflow_name_input",
         )
 
     with col_name2:
         if st.button("Save Workflow", use_container_width=True):
-            if workflow_name and st.session_state.workflow_steps:
-                # Get ML model choice if ML Models step exists
+            workflow_steps = memory.get_var("workflow_steps") or []
+            if workflow_name and workflow_steps:
                 ml_model_choice = None
-                if "ML Models" in [s["name"] for s in st.session_state.workflow_steps]:
-                    ml_model_choice = st.session_state.get("workflow_ml_model_choice") or st.session_state.get("optimization_model_choice")
+                if "ML Models" in [s["name"] for s in workflow_steps]:
+                    ml_model_choice = memory.get_var("workflow_ml_model_choice") or memory.get_var("optimization_model_choice")
 
-                save_workflow(workflow_name, st.session_state.workflow_steps, ml_model_choice)
-                st.session_state.current_workflow["name"] = workflow_name
+                save_workflow(workflow_name, workflow_steps, ml_model_choice)
+                cw = memory.get_var("current_workflow") or {}
+                cw["name"] = workflow_name
+                memory.set_var("current_workflow", cw)
                 st.success(f"Workflow '{workflow_name}' saved!")
             else:
                 st.warning("Please add steps to your workflow before saving.")
@@ -353,19 +349,18 @@ with tab_build:
     st.divider()
 
     # ML Model Selection (if ML Models step is in workflow)
-    if "ML Models" in [s["name"] for s in st.session_state.workflow_steps]:
+    workflow_steps = memory.get_var("workflow_steps") or []
+    if "ML Models" in [s["name"] for s in workflow_steps]:
         st.subheader("🤖 ML Model Configuration")
         st.info("Select which ML model to use when this workflow runs the ML Models step.")
 
-        # Available ML models (matching ml_models.py)
         available_ml_models = [
             "Single-objective GP (scikit-learn)",
             "Dual-objective GP (PyTorch)",
             "Monte Carlo Decision Tree (external)"
         ]
 
-        # Get current choice or default
-        current_choice = st.session_state.get("workflow_ml_model_choice") or st.session_state.get("optimization_model_choice")
+        current_choice = memory.get_var("workflow_ml_model_choice") or memory.get_var("optimization_model_choice")
         if current_choice not in available_ml_models:
             current_choice = available_ml_models[0]
 
@@ -377,18 +372,19 @@ with tab_build:
             key="workflow_ml_model_select"
         )
 
-        st.session_state.workflow_ml_model_choice = ml_model_choice
+        memory.set_var("workflow_ml_model_choice", ml_model_choice)
 
         st.divider()
 
     # Workflow steps builder
     st.subheader("🧩 Workflow Steps")
 
-    if not st.session_state.workflow_steps:
+    if not workflow_steps:
         st.info("Add steps to your workflow using the controls below.")
 
     # Display current steps
-    for idx, step in enumerate(st.session_state.workflow_steps):
+    workflow_steps = memory.get_var("workflow_steps") or []
+    for idx, step in enumerate(workflow_steps):
         with st.container():
             col_step1, col_step2, col_step3, col_step4 = st.columns([3, 2, 1, 1])
 
@@ -409,29 +405,32 @@ with tab_build:
                         key=f"auto_{idx}",
                         help="This step will run automatically when reached",
                     )
-                    st.session_state.workflow_steps[idx]["automatic"] = auto_status
+                    workflow_steps = memory.get_var("workflow_steps") or []
+                    if idx < len(workflow_steps):
+                        workflow_steps[idx]["automatic"] = auto_status
+                        memory.set_var("workflow_steps", workflow_steps)
                 else:
                     st.caption("Manual step")
 
             with col_step3:
                 if idx > 0:
                     if st.button("Up", key=f"up_{idx}", help="Move up"):
-                        st.session_state.workflow_steps[idx], st.session_state.workflow_steps[idx - 1] = (
-                            st.session_state.workflow_steps[idx - 1],
-                            st.session_state.workflow_steps[idx],
-                        )
+                        workflow_steps = memory.get_var("workflow_steps") or []
+                        workflow_steps[idx], workflow_steps[idx - 1] = workflow_steps[idx - 1], workflow_steps[idx]
+                        memory.set_var("workflow_steps", workflow_steps)
                         st.rerun()
-                if idx < len(st.session_state.workflow_steps) - 1:
+                if idx < len(workflow_steps) - 1:
                     if st.button("Down", key=f"down_{idx}", help="Move down"):
-                        st.session_state.workflow_steps[idx], st.session_state.workflow_steps[idx + 1] = (
-                            st.session_state.workflow_steps[idx + 1],
-                            st.session_state.workflow_steps[idx],
-                        )
+                        workflow_steps = memory.get_var("workflow_steps") or []
+                        workflow_steps[idx], workflow_steps[idx + 1] = workflow_steps[idx + 1], workflow_steps[idx]
+                        memory.set_var("workflow_steps", workflow_steps)
                         st.rerun()
 
             with col_step4:
                 if st.button("Remove", key=f"remove_{idx}", help="Remove step"):
-                    st.session_state.workflow_steps.pop(idx)
+                    workflow_steps = memory.get_var("workflow_steps") or []
+                    workflow_steps.pop(idx)
+                    memory.set_var("workflow_steps", workflow_steps)
                     st.rerun()
 
             st.divider()
@@ -441,10 +440,11 @@ with tab_build:
 
     col_add1, col_add2 = st.columns([3, 1])
     with col_add1:
+        workflow_steps = memory.get_var("workflow_steps") or []
         available_to_add = [
             name
             for name in AVAILABLE_STEPS.keys()
-            if name not in [s["name"] for s in st.session_state.workflow_steps]
+            if name not in [s["name"] for s in workflow_steps]
         ]
 
         if available_to_add:
@@ -463,10 +463,12 @@ with tab_build:
                 step_info = AVAILABLE_STEPS[new_step_name]
                 new_step = {
                     "name": new_step_name,
-                    "automatic": False,  # Default to manual
+                    "automatic": False,
                     "description": step_info.get("description", ""),
                 }
-                st.session_state.workflow_steps.append(new_step)
+                workflow_steps = memory.get_var("workflow_steps") or []
+                workflow_steps.append(new_step)
+                memory.set_var("workflow_steps", workflow_steps)
                 st.rerun()
 
     st.divider()
@@ -478,10 +480,9 @@ with tab_build:
 
     with col_action1:
         if st.button("Apply Workflow", use_container_width=True, type="primary"):
-            if workflow_name and st.session_state.workflow_steps:
-                # Save current workflow
-                save_workflow(workflow_name, st.session_state.workflow_steps)
-                # Apply it
+            workflow_steps = memory.get_var("workflow_steps") or []
+            if workflow_name and workflow_steps:
+                save_workflow(workflow_name, workflow_steps)
                 apply_workflow(workflow_name)
                 st.rerun()
             else:
@@ -489,17 +490,17 @@ with tab_build:
 
     with col_action2:
         if st.button("Reset Workflow", use_container_width=True):
-            st.session_state.workflow_steps = []
-            st.session_state.current_workflow = {"name": "Default Workflow", "steps": []}
+            memory.set_var("workflow_steps", [])
+            memory.set_var("current_workflow", {"name": "Default Workflow", "steps": []})
             st.rerun()
 
     with col_action3:
-        # Export workflow as JSON
-        if st.session_state.workflow_steps:
+        workflow_steps = memory.get_var("workflow_steps") or []
+        if workflow_steps:
             workflow_json = json.dumps(
                 {
                     "name": workflow_name,
-                    "steps": st.session_state.workflow_steps,
+                    "steps": workflow_steps,
                 },
                 indent=2,
             )
@@ -512,18 +513,18 @@ with tab_build:
             )
 
     # Workflow preview
-    if st.session_state.workflow_steps:
+    workflow_steps = memory.get_var("workflow_steps") or []
+    if workflow_steps:
         st.divider()
         st.subheader("👀 Workflow Preview")
 
-        preview_cols = st.columns(len(st.session_state.workflow_steps))
-        for idx, step in enumerate(st.session_state.workflow_steps):
+        preview_cols = st.columns(len(workflow_steps))
+        for idx, step in enumerate(workflow_steps):
             with preview_cols[idx]:
                 auto_badge = "AUTO" if step.get("automatic", False) else "MANUAL"
                 st.markdown(f"**{idx + 1}.** {auto_badge} {step['name']}")
 
-        # Show automatic execution summary
-        auto_steps = [s["name"] for s in st.session_state.workflow_steps if s.get("automatic", False)]
+        auto_steps = [s["name"] for s in workflow_steps if s.get("automatic", False)]
         if auto_steps:
             st.info(f"**Automatic steps:** {', '.join(auto_steps)}")
         else:

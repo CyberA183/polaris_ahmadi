@@ -21,3 +21,5 @@ kaleido
 fastapi
 uvicorn
 altair==4.2.2
+pyinstaller>=6.0.0
+pywebview>=4.0

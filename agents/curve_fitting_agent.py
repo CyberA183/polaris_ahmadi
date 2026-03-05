@@ -153,7 +153,7 @@ class CurveFittingAgent(BaseAgent):
         if delay is None:
             try:
                 import streamlit as st
-                delay = st.session_state.get('gemini_delay_seconds', 0.5)
+                delay = self.memory.get_var("gemini_delay_seconds", 0.5)
             except (ImportError, RuntimeError, AttributeError):
                 delay = 0.5  # Default in headless mode
         
@@ -161,7 +161,7 @@ class CurveFittingAgent(BaseAgent):
         api_key = None
         try:
             import streamlit as st
-            api_key = st.session_state.get('api_key')
+            api_key = self.memory.get_var("api_key")
         except (ImportError, RuntimeError, AttributeError):
             pass  # Not in Streamlit context
         
@@ -233,8 +233,8 @@ class CurveFittingAgent(BaseAgent):
         else:
             # Check memory for recent watcher trigger
             try:
-                events = memory.get_latest_history(limit=5)
-                for event in events:
+                all_events = memory.get_var("conversation_events", [])
+                for event in all_events[-20:]:  # Check last 20 events
                     if isinstance(event, dict) and event.get("type") == "watcher":
                         event_payload = event.get("payload", {})
                         if isinstance(event_payload, dict):
@@ -354,8 +354,7 @@ class CurveFittingAgent(BaseAgent):
                 
                 # Store results in memory
                 try:
-                    if hasattr(memory, 'session_state') and memory.session_state:
-                        memory.session_state.curve_fitting_results = results
+                    memory.set_var("curve_fitting_results", results)
                 except Exception:
                     pass
                     
@@ -589,7 +588,7 @@ class CurveFittingAgent(BaseAgent):
                 jupyter_upload_status = None
                 try:
                     if hasattr(st, 'session_state'):
-                        jupyter_config = st.session_state.get("jupyter_config", {})
+                        jupyter_config = memory.get_var("jupyter_config", {})
                         upload_enabled = jupyter_config.get("upload_enabled", False)
                         
                         if upload_enabled:

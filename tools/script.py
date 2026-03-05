@@ -14,7 +14,7 @@ from tools.script_executor import ScriptExecutor
 from tools.instruct import FITTING_SCRIPT_GENERATION_INSTRUCTIONS
 
 # Optional Google AI Studio (Gemini) support
-GOOGLE_API_KEY = st.session_state.api_key
+GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 LLM_PROVIDER = (os.environ.get("LLM_PROVIDER") or "google").lower()  # 'google' or 'hf'
 GOOGLE_MODEL_ID = os.environ.get("GOOGLE_MODEL_ID") or "gemini-2.5-flash-lite"  # Text-only model (use preview-image for images)
 HF_MODEL_ID = os.environ.get("HF_MODEL_ID") or "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
