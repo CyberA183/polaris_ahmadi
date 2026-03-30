@@ -15,15 +15,16 @@ pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-### macOS updater release contract
+### Desktop updater release contract
 - - -
-The packaged macOS app can check GitHub Releases for updates and stage a new bundle
+The packaged desktop app can check GitHub Releases for updates and stage a new bundle
 for installation on next launch.
 
 Expected release assets:
 
 1. `Polaris.app.zip`
-2. `version.json`
+2. `Polaris-win.zip`
+3. `version.json`
 
 Recommended tag format:
 
@@ -39,8 +40,20 @@ Example `version.json`:
   "notes": "Bug fixes and updater support",
   "macos": {
     "url": "https://github.com/CyberA183/polaris_ahmadi/releases/download/v1.0.1/Polaris.app.zip"
+  },
+  "windows": {
+    "url": "https://github.com/CyberA183/polaris_ahmadi/releases/download/v1.0.1/Polaris-win.zip"
   }
 }
+```
+
+Windows zip structure:
+
+```text
+Polaris-win.zip
+└── Polaris/
+    ├── Polaris.exe
+    └── ...
 ```
 
 Recommended hosted manifest URL:

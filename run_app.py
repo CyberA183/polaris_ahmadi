@@ -23,14 +23,13 @@ import webview
 import webview.menu as wm
 
 from tools.paths import (
-    get_current_app_bundle_path,
+    get_current_install_target_path,
     get_resource_path,
     get_update_pending_path,
     get_updater_log_path,
     get_user_data_dir,
 )
 from tools.updater import (
-    ensure_update_helper_script,
     fetch_latest_version_info,
     get_current_version,
     is_update_available,
@@ -65,6 +64,11 @@ def _run_frozen_module_entrypoint() -> None:
     if module_name == "watcher.server":
         sys.argv = ["watcher.server"] + module_args
         runpy.run_module("watcher.server", run_name="__main__")
+        sys.exit(0)
+
+    if module_name == "tools.updater.update_helper":
+        sys.argv = ["tools.updater.update_helper"] + module_args
+        runpy.run_module("tools.updater.update_helper", run_name="__main__")
         sys.exit(0)
 
 
@@ -209,8 +213,8 @@ def log_message(message: str) -> None:
 
 def is_updater_supported() -> bool:
     """Return True when the app can self-update on this platform."""
-    return sys.platform == "darwin" and getattr(sys, "frozen", False) and bool(
-        get_current_app_bundle_path()
+    return sys.platform in {"darwin", "win32"} and getattr(sys, "frozen", False) and bool(
+        get_current_install_target_path()
     )
 
 
@@ -220,17 +224,12 @@ def launch_pending_update_helper() -> bool:
     if not pending_update:
         return False
 
-    helper_python = "/usr/bin/python3"
-    if not Path(helper_python).exists():
-        log_message("System Python not found; cannot launch updater helper.")
-        return False
-
-    helper_path = ensure_update_helper_script()
     write_updater_log("Launching updater helper")
     subprocess.Popen(
         [
-            helper_python,
-            helper_path,
+            sys.executable,
+            "-m",
+            "tools.updater.update_helper",
             get_update_pending_path(),
             str(os.getpid()),
             get_updater_log_path(),
@@ -358,7 +357,7 @@ def main():
 
     def perform_update_check(show_result: bool = False) -> None:
         if not is_updater_supported():
-            updater_state["status"] = "Updater available only in packaged macOS builds."
+            updater_state["status"] = "Updater available only in packaged desktop builds."
             return
 
         with update_lock:
@@ -399,7 +398,7 @@ def main():
         if not is_updater_supported():
             show_info_window(
                 "Updater Unavailable",
-                "Update download is only available in packaged macOS builds.",
+                "Update download is only available in packaged desktop builds.",
             )
             return
 
@@ -415,7 +414,7 @@ def main():
         try:
             pending_update = stage_update(
                 latest_info,
-                install_target=get_current_app_bundle_path(),
+                install_target=get_current_install_target_path(),
             )
             updater_state["pending_update"] = pending_update
             updater_state["status"] = (
@@ -542,7 +541,7 @@ def main():
             daemon=True,
         ).start()
     else:
-        updater_state["status"] = "Updater available only in packaged macOS builds."
+        updater_state["status"] = "Updater available only in packaged desktop builds."
 
     menu_items = [
         wm.Menu(

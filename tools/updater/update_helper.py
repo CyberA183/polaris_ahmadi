@@ -1,8 +1,5 @@
 """
-Standalone helper that swaps a staged macOS app bundle into place.
-
-This script is copied to the user-data updater directory and launched with the
-system Python so it can continue running after the main app exits.
+Standalone helper that swaps a staged desktop app into place.
 """
 
 from __future__ import annotations
@@ -35,6 +32,32 @@ def _write_log(log_path: Path, message: str) -> None:
         log_file.write(message.rstrip() + "\n")
 
 
+def _remove_path(target: Path) -> None:
+    if not target.exists():
+        return
+    if target.is_dir():
+        shutil.rmtree(target, ignore_errors=True)
+    else:
+        target.unlink(missing_ok=True)
+
+
+def _launch_updated_app(platform_name: str, install_target: Path, launch_path: Path) -> None:
+    if platform_name == "darwin":
+        subprocess.Popen(["open", str(install_target)])
+        return
+
+    if platform_name == "windows":
+        subprocess.Popen(
+            [str(launch_path)],
+            cwd=str(install_target),
+            creationflags=getattr(subprocess, "DETACHED_PROCESS", 0)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        )
+        return
+
+    raise RuntimeError(f"Unsupported updater platform: {platform_name}")
+
+
 def main() -> int:
     if len(sys.argv) < 4:
         return 1
@@ -50,38 +73,38 @@ def main() -> int:
     with open(pending_path, "r", encoding="utf-8") as pending_file:
         data = json.load(pending_file)
 
+    platform_name = data.get("platform", "macos")
     install_target = Path(data["install_target"])
-    staged_bundle = Path(data["staged_bundle_path"])
+    launch_path = Path(data.get("install_launch_path", install_target))
+    staged_path = Path(data.get("staged_path", data.get("staged_bundle_path", "")))
     staging_dir = Path(data["staging_dir"])
     download_path = Path(data["download_path"])
-    backup_bundle = install_target.with_name(f"{install_target.stem}.previous.app")
+    backup_target = install_target.with_name(f"{install_target.name}.previous")
 
     _write_log(log_path, f"Waiting for launcher PID {launcher_pid} to exit")
     _wait_for_pid(launcher_pid)
 
-    if not staged_bundle.exists():
-        _write_log(log_path, "Staged bundle does not exist; aborting update.")
+    if not staged_path.exists():
+        _write_log(log_path, "Staged install target does not exist; aborting update.")
         return 1
 
     try:
-        if backup_bundle.exists():
-            shutil.rmtree(backup_bundle)
+        _remove_path(backup_target)
 
         if install_target.exists():
-            shutil.move(str(install_target), str(backup_bundle))
+            shutil.move(str(install_target), str(backup_target))
 
-        shutil.move(str(staged_bundle), str(install_target))
+        shutil.move(str(staged_path), str(install_target))
         pending_path.unlink(missing_ok=True)
 
         if staging_dir.exists():
             shutil.rmtree(staging_dir, ignore_errors=True)
         if download_path.exists():
             download_path.unlink(missing_ok=True)
-        if backup_bundle.exists():
-            shutil.rmtree(backup_bundle, ignore_errors=True)
+        _remove_path(backup_target)
 
         _write_log(log_path, f"Installed update to {install_target}")
-        subprocess.Popen(["open", str(install_target)])
+        _launch_updated_app(platform_name, install_target, launch_path)
         return 0
     except Exception as exc:
         _write_log(log_path, f"Update helper failed: {exc}")

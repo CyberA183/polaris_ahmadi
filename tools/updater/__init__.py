@@ -17,6 +17,7 @@ from .updater import (
 from .version import (
     APP_VERSION,
     DEFAULT_MACOS_ASSET_NAME,
+    DEFAULT_WINDOWS_ASSET_NAME,
     GITHUB_REPOSITORY,
     VERSION_MANIFEST_URL,
 )

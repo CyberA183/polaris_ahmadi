@@ -67,9 +67,9 @@ def get_updates_dir() -> str:
     return str(path)
 
 
-def get_update_download_path() -> str:
+def get_update_download_path(filename: str = "release.zip") -> str:
     """Get path for a downloaded update archive."""
-    return str(Path(get_updates_dir()) / "Polaris.app.zip")
+    return str(Path(get_updates_dir()) / filename)
 
 
 def get_update_staging_dir() -> str:
@@ -100,4 +100,36 @@ def get_current_app_bundle_path() -> str | None:
     for parent in executable_path.parents:
         if parent.suffix == ".app":
             return str(parent)
+    return None
+
+
+def get_current_windows_install_dir() -> str | None:
+    """Return the current Windows portable app directory when running frozen."""
+    if sys.platform != "win32" or not is_frozen():
+        return None
+    return str(Path(sys.executable).resolve().parent)
+
+
+def get_current_windows_executable_path() -> str | None:
+    """Return the current Windows executable path when running frozen."""
+    if sys.platform != "win32" or not is_frozen():
+        return None
+    return str(Path(sys.executable).resolve())
+
+
+def get_current_install_target_path() -> str | None:
+    """Return the current install target for packaged desktop builds."""
+    if sys.platform == "darwin":
+        return get_current_app_bundle_path()
+    if sys.platform == "win32":
+        return get_current_windows_install_dir()
+    return None
+
+
+def get_current_launch_path() -> str | None:
+    """Return the path that should be launched after installing an update."""
+    if sys.platform == "darwin":
+        return get_current_app_bundle_path()
+    if sys.platform == "win32":
+        return get_current_windows_executable_path()
     return None
