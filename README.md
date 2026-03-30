@@ -17,8 +17,7 @@ streamlit run streamlit_app.py
 
 ### Desktop updater release contract
 - - -
-The packaged desktop app can check GitHub Releases for updates and stage a new bundle
-for installation on next launch.
+The packaged desktop app can check GitHub Releases for updates and stage a new bundle for installation on next launch.
 
 Expected release assets:
 
