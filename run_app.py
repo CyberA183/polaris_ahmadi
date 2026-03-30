@@ -8,6 +8,7 @@ Shows a loading screen immediately while the Streamlit server starts.
 
 import atexit
 import html
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -43,6 +44,26 @@ APP_TITLE = "Polaris Ahmadi"
 STREAMLIT_PORT = 8501
 STARTUP_TIMEOUT_SECONDS = 30
 SERVER_POLL_INTERVAL_SECONDS = 0.2
+DEBUG_LOG_PATH = Path("/Users/arielthompson/Documents/IAMM_Research/polaris_ahmadi/.cursor/debug-c97a27.log")
+
+
+# region agent log
+def _debug_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    try:
+        payload = {
+            "sessionId": "c97a27",
+            "runId": "pre-fix",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as debug_file:
+            debug_file.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+# endregion
 
 
 def _run_frozen_module_entrypoint() -> None:
@@ -578,7 +599,59 @@ def main():
         ),
     ]
 
-    webview.start(launch_streamlit, window, menu=menu_items)
+    # region agent log
+    bundle_root = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    python_runtime_candidates = sorted(
+        str(path) for path in bundle_root.rglob("Python.Runtime.dll")
+    )[:10]
+    _debug_log(
+        "H1",
+        "run_app.py:webview-start",
+        "Collected Windows webview backend probe data",
+        {
+            "platform": sys.platform,
+            "frozen": bool(getattr(sys, "frozen", False)),
+            "executable": sys.executable,
+            "meipass": getattr(sys, "_MEIPASS", None),
+            "bundle_root": str(bundle_root),
+            "webview_module": getattr(webview, "__file__", None),
+            "winforms_spec": getattr(importlib.util.find_spec("webview.platforms.winforms"), "origin", None),
+            "edgechromium_spec": getattr(importlib.util.find_spec("webview.platforms.edgechromium"), "origin", None),
+            "clr_spec": getattr(importlib.util.find_spec("clr"), "origin", None),
+            "pythonnet_spec": getattr(importlib.util.find_spec("pythonnet"), "origin", None),
+            "python_runtime_candidates": python_runtime_candidates,
+            "menu_count": len(menu_items),
+        },
+    )
+    _debug_log(
+        "H2",
+        "run_app.py:webview-start",
+        "About to call webview.start",
+        {
+            "gui_env": os.environ.get("PYWEBVIEW_GUI"),
+            "install_target": get_current_install_target_path(),
+        },
+    )
+    # endregion
+    try:
+        webview.start(launch_streamlit, window, menu=menu_items)
+    except Exception as exc:
+        # region agent log
+        _debug_log(
+            "H3",
+            "run_app.py:webview-start",
+            "webview.start raised an exception",
+            {
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "winforms_spec": getattr(importlib.util.find_spec("webview.platforms.winforms"), "origin", None),
+                "clr_spec": getattr(importlib.util.find_spec("clr"), "origin", None),
+                "pythonnet_spec": getattr(importlib.util.find_spec("pythonnet"), "origin", None),
+                "python_runtime_candidates": python_runtime_candidates,
+            },
+        )
+        # endregion
+        raise
     kill_server(proc_holder["proc"])
 
 
