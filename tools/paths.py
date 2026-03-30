@@ -10,6 +10,7 @@ from pathlib import Path
 # Application name for user data directory
 APP_NAME = "PolarisAhmadi"
 DB_FILENAME = "polaris.db"
+UPDATER_DIRNAME = "updates"
 
 
 def is_frozen() -> bool:
@@ -57,3 +58,46 @@ def get_db_path() -> str:
 def get_env_path() -> str:
     """Get path to .env file in user data dir (for packaged app)."""
     return str(Path(get_user_data_dir()) / ".env")
+
+
+def get_updates_dir() -> str:
+    """Get the updater working directory in user data."""
+    path = Path(get_user_data_dir()) / UPDATER_DIRNAME
+    path.mkdir(parents=True, exist_ok=True)
+    return str(path)
+
+
+def get_update_download_path() -> str:
+    """Get path for a downloaded update archive."""
+    return str(Path(get_updates_dir()) / "Polaris.app.zip")
+
+
+def get_update_staging_dir() -> str:
+    """Get the directory used to extract a staged app update."""
+    path = Path(get_updates_dir()) / "staged"
+    path.mkdir(parents=True, exist_ok=True)
+    return str(path)
+
+
+def get_update_pending_path() -> str:
+    """Get path for the pending update marker file."""
+    return str(Path(get_updates_dir()) / "pending_update.json")
+
+
+def get_update_helper_runtime_path() -> str:
+    """Get path for the copied standalone updater helper script."""
+    return str(Path(get_updates_dir()) / "update_helper_runtime.py")
+
+
+def get_updater_log_path() -> str:
+    """Get path for updater-related logging."""
+    return str(Path(get_updates_dir()) / "updater.log")
+
+
+def get_current_app_bundle_path() -> str | None:
+    """Return the current macOS .app bundle path when running frozen."""
+    executable_path = Path(sys.executable).resolve()
+    for parent in executable_path.parents:
+        if parent.suffix == ".app":
+            return str(parent)
+    return None

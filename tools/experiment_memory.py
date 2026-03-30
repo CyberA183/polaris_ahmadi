@@ -10,37 +10,59 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 from pathlib import Path
 
+from tools.paths import is_frozen, get_user_data_dir
+
+
+def _resolve_memory_dir(memory_dir: str | None = None) -> Path:
+    """Resolve the experiment memory directory to a writable location."""
+    raw_dir = memory_dir or "data"
+    candidate = Path(raw_dir).expanduser()
+    if candidate.is_absolute():
+        return candidate
+    if is_frozen():
+        return Path(get_user_data_dir()) / candidate
+    return candidate
+
 
 class ExperimentMemory:
     """Tracks completed experiments and their results."""
-    
-    def __init__(self, memory_file: str = "experiment_memory.json"):
-        self.memory_file = memory_file
-        self.memory_dir = "data"
+
+    def __init__(
+        self,
+        memory_file: str = "experiment_memory.json",
+        memory_dir: str | None = None,
+    ):
+        memory_path = Path(memory_file).expanduser()
+        if memory_path.is_absolute():
+            self.memory_file = memory_path.name
+            self.memory_dir = memory_path.parent
+        else:
+            self.memory_file = memory_path.name
+            self.memory_dir = _resolve_memory_dir(memory_dir)
         self._ensure_memory_dir()
-    
+
     def _ensure_memory_dir(self):
         """Ensure memory directory exists."""
-        if not os.path.exists(self.memory_dir):
-            os.makedirs(self.memory_dir, exist_ok=True)
-    
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
+
     def _load_memory(self) -> Dict[str, Any]:
         """Load experiment memory from file."""
-        file_path = os.path.join(self.memory_dir, self.memory_file)
-        if os.path.exists(file_path):
+        file_path = self.memory_dir / self.memory_file
+        if file_path.exists():
             try:
-                with open(file_path, 'r') as f:
+                with open(file_path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
                 st.warning(f"Could not load experiment memory: {e}")
                 return {"experiments": [], "metadata": {}}
         return {"experiments": [], "metadata": {}}
-    
+
     def _save_memory(self, memory_data: Dict[str, Any]):
         """Save experiment memory to file."""
-        file_path = os.path.join(self.memory_dir, self.memory_file)
+        file_path = self.memory_dir / self.memory_file
         try:
-            with open(file_path, 'w') as f:
+            self._ensure_memory_dir()
+            with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(memory_data, f, indent=2)
         except Exception as e:
             st.error(f"Could not save experiment memory: {e}")
@@ -195,13 +217,16 @@ def get_experiment_memory(memory_manager=None) -> ExperimentMemory:
             if exp_mem is None:
                 memory_file = memory_manager.get_var("experiment_memory_file", "experiment_memory.json")
                 data_dir = memory_manager.get_var("experiment_data_dir", "data")
-                exp_mem = ExperimentMemory(memory_file=memory_file)
-                exp_mem.memory_dir = data_dir
+                exp_mem = ExperimentMemory(memory_file=memory_file, memory_dir=data_dir)
                 memory_manager.set_var("experiment_memory", exp_mem)
             return exp_mem
         if "experiment_memory" not in st.session_state:
             memory_file = st.session_state.get("experiment_memory_file", "experiment_memory.json")
-            st.session_state.experiment_memory = ExperimentMemory(memory_file=memory_file)
+            data_dir = st.session_state.get("experiment_data_dir", "data")
+            st.session_state.experiment_memory = ExperimentMemory(
+                memory_file=memory_file,
+                memory_dir=data_dir,
+            )
         return st.session_state.experiment_memory
     except (RuntimeError, AttributeError, ImportError):
         return ExperimentMemory()
