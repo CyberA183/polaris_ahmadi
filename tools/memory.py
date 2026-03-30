@@ -8,6 +8,7 @@ from datetime import datetime
 import json
 import logging
 import os
+import threading
 import uuid
 
 # Lazy import streamlit to avoid issues in headless mode
@@ -22,6 +23,9 @@ from tools.database import DatabaseManager
 from tools.paths import get_env_path, get_user_data_dir
 from tools.runtime_state import clear_ephemeral, get as runtime_get, is_runtime_key, set as runtime_set
 
+_init_lock = threading.Lock()
+_defaults_ready = False
+
 
 class MemoryManager:
     def __init__(self):
@@ -29,7 +33,20 @@ class MemoryManager:
 
     def init_session(self):
         """Initialize the session: ensure DB defaults and handle API key from env/secrets."""
-        self._db.ensure_defaults()
+        global _defaults_ready
+        if not _defaults_ready:
+            with _init_lock:
+                if not _defaults_ready:
+                    self._db.ensure_defaults()
+                    _defaults_ready = True
+
+        if STREAMLIT_AVAILABLE and st is not None:
+            try:
+                if st.session_state.get("_polaris_memory_initialized", False):
+                    return
+            except (AttributeError, RuntimeError):
+                pass
+
         clear_ephemeral()
 
         # Set start_time if not present
@@ -76,6 +93,12 @@ class MemoryManager:
             if api_key:
                 os.environ["GOOGLE_API_KEY"] = api_key
                 os.environ["GEMINI_API_KEY"] = api_key
+
+        if STREAMLIT_AVAILABLE and st is not None:
+            try:
+                st.session_state["_polaris_memory_initialized"] = True
+            except (AttributeError, RuntimeError):
+                pass
 
     def log_event(self, event_type: str, payload: dict, mode: str):
         """Unified event log to database (or logger if DB unavailable)."""
