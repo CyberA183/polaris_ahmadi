@@ -75,82 +75,43 @@ def _lazy_import_given_vars():
 
 
 def generate_text_with_llm(prompt: str) -> str:
-    """Generating text using Gemini provided model and API Key"""
+    """Generate text using configured LLM (Gemini or Qwen 2.5)."""
     try:
-        # Get the latest API key - check in order: environment variables (most reliable), session state, cached key, module variable
-        # Environment variables are most reliable for cross-page persistence
-        api_key = None
+        # Load .env if available
+        try:
+            from dotenv import load_dotenv
+            from pathlib import Path
+            env_path = Path(__file__).parent.parent / '.env'
+            load_dotenv(env_path)
+        except (ImportError, Exception):
+            pass
 
-        # First check environment variables (most reliable for persistence)
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        # Also try loading from .env file if available
-        if not api_key:
-            try:
-                from dotenv import load_dotenv
-                from pathlib import Path
-                # Try loading from project root
-                env_path = Path(__file__).parent.parent / '.env'
-                load_dotenv(env_path)
-                api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-            except (ImportError, Exception):
-                pass  # dotenv not available or file not found, continue
-
-        # Then check session state (may have been updated in UI)
-        if not api_key:
-            try:
-                import streamlit as st
-                api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-                if not api_key and hasattr(st, 'session_state') and hasattr(st.session_state, 'api_key'):
-                    api_key = st.session_state.get('api_key')
-            except (RuntimeError, AttributeError):
-                # Not in Streamlit context, continue to other checks
-                pass
-
-        # If still no key, check fallback sources
-        if not api_key:
-            # Check cached key first (updated by UI)
-            if hasattr(generate_text_with_llm, '_cached_api_key'):
-                api_key = generate_text_with_llm._cached_api_key
-
-            # Check module-level variable (may have been updated)
-            if not api_key:
-                api_key = GOOGLE_API_KEY
-
-            # Check module-level variable (last resort)
-            if not api_key:
-                api_key = GOOGLE_API_KEY
+        provider = os.getenv("LLM_PROVIDER") or "gemini"
+        if provider == "gemini":
+            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("LLM_API_KEY")
+        else:
+            api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("LLM_API_KEY")
 
         if not api_key:
-            error_msg = "API key not found. Please set GOOGLE_API_KEY or GEMINI_API_KEY environment variable, or enter it in the UI (Options)."
-            logging.error(error_msg)
-            raise ValueError(error_msg)
+            api_key = GOOGLE_API_KEY
 
-        # Log model and key status (first 10 chars only for security)
-        logging.info(f"Using model: {GOOGLE_MODEL_ID}, API key present: {bool(api_key)} (starts with: {api_key[:10] if api_key and len(api_key) > 10 else 'N/A'}...)")
-
-        # Validate API key format (Gemini keys are typically 39 characters starting with specific patterns)
-        if api_key and not (api_key.startswith(('AIza', 'AIzaSy')) and len(api_key) > 30):
-            logging.warning(f"API key format looks unusual. Expected Gemini API key format. Key starts with: {api_key[:10] if api_key else 'None'}...")
-
-        # CRITICAL: Check if API key is actually valid before proceeding
         if not api_key or not api_key.strip():
-            raise ValueError("API key is empty or None. Please set your Google Gemini API key in Settings.")
+            key_hint = "GEMINI_API_KEY or GOOGLE_API_KEY" if provider == "gemini" else "DASHSCOPE_API_KEY"
+            raise ValueError(f"API key not found. Set {key_hint} or enter it in Settings.")
 
-        # Lazy import genai only when needed
-        genai = _lazy_import_genai()
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(GOOGLE_MODEL_ID)
-        response = model.generate_content(prompt)
-        
-        if not response:
-            logging.error("Empty response from model")
-            raise ValueError("Empty response from model")
-        
-        if not hasattr(response, 'text') or not response.text:
-            logging.error(f"No text in response. Response object: {response}")
-            raise ValueError("No text in model response")
-        
-        text = response.text
+        model = os.getenv("LLM_MODEL") or (GOOGLE_MODEL_ID if provider == "gemini" else "qwen2.5-72b-instruct")
+        qwen_base_url = os.getenv("QWEN_BASE_URL") or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+        logging.info(f"Using {provider} model {model}, API key present: {bool(api_key)}")
+
+        from tools.llm_client import generate_text as llm_generate
+        text = llm_generate(
+            prompt=prompt,
+            api_key=api_key,
+            provider=provider,
+            model=model,
+            qwen_base_url=qwen_base_url,
+        )
         logging.info(f"Successfully generated text (length: {len(text)})")
         return text
     except ValueError as e:

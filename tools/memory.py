@@ -100,6 +100,24 @@ class MemoryManager:
             except (AttributeError, RuntimeError):
                 pass
 
+        # Sync LLM provider config from db (for socratic/llm_client)
+        provider = self._db.get("llm_provider") or "gemini"
+        os.environ["LLM_PROVIDER"] = provider
+        model = self._db.get("llm_model")
+        if model:
+            os.environ["LLM_MODEL"] = model
+        qwen_base_url = self._db.get("qwen_base_url")
+        if qwen_base_url:
+            os.environ["QWEN_BASE_URL"] = qwen_base_url
+        api_key = self._db.get("api_key")
+        if api_key:
+            os.environ["LLM_API_KEY"] = api_key
+            if provider == "gemini":
+                os.environ["GOOGLE_API_KEY"] = api_key
+                os.environ["GEMINI_API_KEY"] = api_key
+            else:
+                os.environ["DASHSCOPE_API_KEY"] = api_key
+
     def log_event(self, event_type: str, payload: dict, mode: str):
         """Unified event log to database (or logger if DB unavailable)."""
         try:
@@ -198,6 +216,62 @@ class MemoryManager:
     def delete_workflow(self, workflow_name: str):
         """Delete workflow from database."""
         self._db.delete_workflow(workflow_name)
+
+    def add_negative_hypothesis(
+        self,
+        hypothesis_text: str,
+        status: str,
+        research_question: str = "",
+        analysis_summary: str = "",
+        context_json: str = None,
+    ):
+        """Store a hypothesis that was rejected or needs revision for model learning."""
+        self._db.add_negative_hypothesis(
+            hypothesis_text, status, research_question, analysis_summary, context_json
+        )
+
+    def get_negative_hypotheses(self, limit=None):
+        """Retrieve negative hypotheses for model context/learning. Use limit=None for all."""
+        return self._db.get_negative_hypotheses(limit)
+
+    def create_user(self, user_id: str, name: str = ""):
+        """Create or replace a user."""
+        self._db.create_user(user_id, name or user_id)
+
+    def get_user(self, user_id: str):
+        """Get user by id."""
+        return self._db.get_user(user_id)
+
+    def list_users(self):
+        """List all users."""
+        return self._db.list_users()
+
+    def create_experiment(self, user_id: str, name: str = "") -> int:
+        """Create a new experiment. Returns experiment id."""
+        return self._db.create_experiment(user_id, name)
+
+    def list_experiments(self, user_id: str, limit: int = 50):
+        """List experiments for a user."""
+        return self._db.list_experiments(user_id, limit)
+
+    def get_experiment(self, experiment_id: int):
+        """Get experiment by id."""
+        return self._db.get_experiment(experiment_id)
+
+    def set_current_experiment(self, experiment_id: int, user_id: str = ""):
+        """Set the active experiment (and optionally user)."""
+        self._db.set_current_experiment(experiment_id, user_id)
+
+    def load_experiment(self, experiment_id: int):
+        """Switch to an experiment - load its data and set as current."""
+        self._db.set_current_experiment(experiment_id)
+        self._db.load_experiment_into_session(experiment_id)
+
+    def new_experiment(self, user_id: str, name: str = "") -> int:
+        """Create and switch to a new experiment. Returns experiment id."""
+        exp_id = self._db.create_experiment(user_id, name)
+        self._db.set_current_experiment(exp_id, user_id)
+        return exp_id
 
     def snapshot_session_state(self, note: str = "session_state_snapshot"):
         """Capture a JSON-serializable snapshot of current state for debugging."""

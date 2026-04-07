@@ -19,7 +19,7 @@ from typing import Any, Dict, Optional
 from datetime import datetime
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from watchdog.events import FileSystemEventHandler
@@ -111,12 +111,41 @@ def _ensure_api_key():
 # Check API key on module load
 _ensure_api_key()
 
+def _build_session_context(mem: MemoryManager) -> Dict[str, Any]:
+    """Build session/experiment context from database for routing decisions."""
+    try:
+        mem.init_session()
+        exp_id = mem.get_var("current_experiment_id") or 0
+        user_id = mem.get_var("current_user_id") or ""
+        return {
+            "current_experiment_id": int(exp_id) if exp_id else None,
+            "current_user_id": user_id,
+            "stage": mem.get_var("stage", ""),
+            "has_hypothesis": bool(mem.get_var("last_hypothesis") or mem.view_component("hypothesis")),
+            "hypothesis_preview": (str(mem.get_var("last_hypothesis") or "") or str(mem.view_component("hypothesis") or ""))[:200] or None,
+            "has_experimental_outputs": bool(mem.get_var("experimental_outputs")),
+            "has_curve_fitting_results": bool(mem.get_var("curve_fitting_results")),
+            "has_analysis_results": bool(mem.get_var("analysis_results")),
+            "has_gp_results": bool(mem.get_var("gp_results")),
+            "research_goal": mem.get_var("research_goal", "")[:200] or None,
+            "workflow_step": mem.get_var("workflow_step", ""),
+            "hypothesis_ready": mem.get_var("hypothesis_ready", False),
+        }
+    except Exception as e:
+        logger.warning(f"Could not build session context: {e}")
+        return {}
+
+
 # Lifespan context manager for startup/shutdown
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events"""
-    # Startup
+    # Startup - init database/session so watcher can access stored data
     log_and_print("Watcher server starting up...", "INFO")
+    try:
+        memory.init_session()
+    except Exception as e:
+        log_and_print(f"Could not init memory session: {e}", "WARNING")
     yield
     # Shutdown
     log_and_print("Watcher server shutting down...", "INFO")
@@ -202,6 +231,9 @@ class Watcher(FileSystemEventHandler):
             "trigger_file": str(trigger_file),
             "event": "created",
         }
+        session_ctx = _build_session_context(self.memory)
+        if session_ctx:
+            payload["session_context"] = session_ctx
         router = self._build_router()
         try:
             router.route(payload, self.memory)
@@ -781,6 +813,56 @@ async def stop_watching():
     return {"status": "stopped", "message": "Observer stopped"}
 
 
+@app.get("/suggest-agent")
+@app.post("/suggest-agent")
+async def suggest_agent(request: Request):
+    """
+    Suggest which agent should run next based on stored session/experiment data.
+    GET: uses current session context only.
+    POST: accepts optional body {"payload": {...}} to enrich the suggestion.
+    """
+    payload: Dict[str, Any] = {}
+    if request.method == "POST":
+        try:
+            body = await request.json()
+            payload = body.get("payload", body) if isinstance(body, dict) else {}
+        except Exception:
+            pass
+    session_ctx = _build_session_context(memory)
+    if session_ctx:
+        payload["session_context"] = session_ctx
+    payload.setdefault("source", "suggest")
+    payload.setdefault("event", "suggest")
+
+    router = None
+    if watcher_handler:
+        router = watcher_handler._build_router()
+    if not router:
+        from agents.hypothesis_agent import HypothesisAgent
+        from agents.experiment_agent import ExperimentAgent
+        from agents.curve_fitting_agent import CurveFittingAgent
+        from agents.analysis_agent import AnalysisAgent
+        from agents.ml_models_agent import MLModelsAgent
+        from agents.watcher_agent import WatcherAgent
+        from agents.fallback_agent import FallbackAgent
+        hyp = HypothesisAgent(name="Hypothesis Agent", desc="Background", question="")
+        exp = ExperimentAgent(name="Experiment Agent", desc="Background", params_const={})
+        cf = CurveFittingAgent(name="Curve Fitting", desc="Background")
+        analysis = AnalysisAgent(name="Analysis Agent", desc="Background")
+        ml_models = MLModelsAgent(name="ML Models", desc="Background")
+        fb = FallbackAgent(name="Fallback Agent", desc="Handles failures")
+        router = AgentRouter(
+            agents=[WatcherAgent(), hyp, exp, cf, ml_models, analysis],
+            fallback_agent=fb,
+        )
+    try:
+        result = router.suggest_next_agent(payload, memory)
+        return result
+    except Exception as e:
+        logger.error(f"Error suggesting agent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/route")
 async def route_event(request: RouteRequest, background_tasks: BackgroundTasks):
     """Route a filesystem event to the appropriate agent"""
@@ -801,6 +883,9 @@ async def route_event(request: RouteRequest, background_tasks: BackgroundTasks):
 def _route_event_task(payload: Dict[str, Any]):
     """Background task to route an event"""
     try:
+        session_ctx = _build_session_context(memory)
+        if session_ctx:
+            payload = {**payload, "session_context": session_ctx}
         router = watcher_handler._build_router() if watcher_handler else None
         if not router:
             # Create a temporary router if watcher not initialized

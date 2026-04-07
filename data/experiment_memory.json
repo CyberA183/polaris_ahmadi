@@ -1,0 +1,26 @@
+{
+  "experiments": [
+    {
+      "experiment_id": "exp_82ab7457",
+      "description": "Experimental plan: ## Hypothesis Report\n\n**Hypothesis:** Specific functional groups, particularly phosphonic acids and long-chain amines, when chemisorbed onto CsPbBr$_3$ nanocrystals, will induce a transition from the ...",
+      "composition": {
+        "Cs_uL": 0,
+        "BDA_uL": 0
+      },
+      "results": {},
+      "metadata": {
+        "plate_format": "96-well",
+        "materials": [
+          "Cs_uL",
+          "BDA_uL"
+        ],
+        "plan_length": 5985
+      },
+      "timestamp": "2026-03-13T12:09:09.301098"
+    }
+  ],
+  "metadata": {
+    "last_updated": "2026-03-13T12:09:09.301098",
+    "total_experiments": 1
+  }
+}

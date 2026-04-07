@@ -684,6 +684,22 @@ class AnalysisAgent(BaseAgent):
                     
                     # Decision point: Hypothesis needs revision?
                     if parsed["hypothesis_status"] in ["needs_revision", "rejected"]:
+                        # Store negative hypothesis in database for model learning
+                        hypothesis_text = (
+                            self.memory.view_component("hypothesis")
+                            or self.memory.get_var("last_hypothesis")
+                            or ""
+                        )
+                        if isinstance(hypothesis_text, str):
+                            hypothesis_text = hypothesis_text[:4000]
+                        else:
+                            hypothesis_text = str(hypothesis_text)[:4000]
+                        self.memory.add_negative_hypothesis(
+                            hypothesis_text=hypothesis_text,
+                            status=parsed["hypothesis_status"],
+                            research_question=self.memory.view_component("clarified_question") or "",
+                            analysis_summary=analysis_result["analysis"][:2000],
+                        )
                         st.info("📝 The analysis suggests the hypothesis may need revision.")
                         if st.button("🔬 Return to Hypothesis Agent", use_container_width=True, key="return_hypothesis"):
                             memory.set_var("next_agent", "hypothesis")

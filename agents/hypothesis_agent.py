@@ -182,17 +182,44 @@ class HypothesisAgent(BaseAgent):
         else:
             return ""
 
+    def _build_negative_hypotheses_context(self) -> str:
+        """Build context from past negative hypotheses for model learning."""
+        negative = self.memory.get_negative_hypotheses(limit=None)
+        if not negative:
+            return ""
+        parts = [
+            "=== Past hypotheses that did not work ===",
+            "IMPORTANT: Do NOT repeat these approaches. Your new hypothesis must differ and address why these failed.",
+            "",
+        ]
+        for i, nh in enumerate(negative, 1):
+            hyp_preview = (nh.get("hypothesis_text") or "")[:600]
+            if len(nh.get("hypothesis_text", "") or "") > 600:
+                hyp_preview += "..."
+            parts.append(f"[{i}] Status: {nh.get('status', 'unknown')}")
+            parts.append(f"    Hypothesis: {hyp_preview}")
+            if nh.get("analysis_summary"):
+                summary = nh["analysis_summary"][:500] + ("..." if len(nh["analysis_summary"]) > 500 else "")
+                parts.append(f"    Why it failed: {summary}")
+            parts.append("")
+        return "\n".join(parts)
+
     def generate_hypothesis_with_context(self, socratic_question, next_step_option, previous_option_1,
                                          previous_option_2, conversation_context):
         """ Generate hypothesis with full conversation context """
         try:
+            # Include past negative hypotheses so model can learn from them
+            negative_ctx = self._build_negative_hypotheses_context()
+            full_context = conversation_context
+            if negative_ctx:
+                full_context = negative_ctx + "\n\n--- Current conversation ---\n\n" + conversation_context
             socratic = _lazy_import_socratic()
             return socratic.hypothesis_synthesis(
-                socratic_question, 
-                next_step_option, 
+                socratic_question,
+                next_step_option,
                 previous_option_1,
                 previous_option_2,
-                conversation_context
+                full_context
             )
         except Exception as e:
             st.error(f"Error generating hypothesis: {str(e)}. Please check your API key and try again.")
@@ -221,12 +248,13 @@ class HypothesisAgent(BaseAgent):
                             memory.set_var("stop_hypothesis", False)
                             st.rerun()
 
-                        # Build conversation context
+                        # Build conversation context (includes past negative hypotheses)
                         context = self.build_conversation_context()
-                        
+                        negative_ctx = self._build_negative_hypotheses_context()
+                        full_context = (negative_ctx + "\n\n--- Current conversation ---\n\n" + context) if negative_ctx else context
                         # Generate hypothesis with conversation context
                         socratic = _lazy_import_socratic()
-                        hypothesis = socratic.hypothesis_synthesis(soc_q, picked, prev1, prev2, context)
+                        hypothesis = socratic.hypothesis_synthesis(soc_q, picked, prev1, prev2, full_context)
 
                         # Ensure hypothesis is never None
                         if hypothesis is None or not str(hypothesis).strip():
@@ -668,6 +696,36 @@ class HypothesisAgent(BaseAgent):
 
             self.memory.insert_interaction("assistant", analysis_rubric, "analysis_rubric", "hypothesis")
             st.success("Analysis complete!")
+
+            # Manual input: Mark current hypothesis as did not work
+            with st.expander("📝 Mark as did not work", expanded=False):
+                st.caption("Record this hypothesis so the model can learn from it and avoid similar mistakes.")
+                reason = st.text_area(
+                    "Why it didn't work (optional):",
+                    placeholder="e.g., Experimental data contradicted the predictions...",
+                    key="negative_hyp_reason",
+                )
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    if st.button("Save as rejected", use_container_width=True, key="mark_rejected"):
+                        self.memory.add_negative_hypothesis(
+                            hypothesis_text=hypothesis[:4000],
+                            status="rejected",
+                            research_question=socratic_question or "",
+                            analysis_summary=reason[:2000] if reason else "Manually marked as rejected.",
+                        )
+                        st.success("Saved. The model will learn from this.")
+                        st.rerun()
+                with col_b:
+                    if st.button("Save as needs revision", use_container_width=True, key="mark_needs_revision"):
+                        self.memory.add_negative_hypothesis(
+                            hypothesis_text=hypothesis[:4000],
+                            status="needs_revision",
+                            research_question=socratic_question or "",
+                            analysis_summary=reason[:2000] if reason else "Manually marked as needs revision.",
+                        )
+                        st.success("Saved. The model will learn from this.")
+                        st.rerun()
 
         elif memory.get_var("stage") == "followup":
 

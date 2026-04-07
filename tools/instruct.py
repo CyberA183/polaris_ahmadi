@@ -543,7 +543,14 @@ HYPOTHESIS_SYNTHESIS = """ You are a careful research assistant analyzing a give
 1. **Socratic Question:** A clarified question developed from a distinct line of thought that the next-step options are based on.
 2. **Next-Step Option:** The option selected by the user, which should be analyzed, explored further, and used to generate a hypothesis.
 3. **Previous Options:** A list of next-step options that were not selected by the user.
-4. **Full Conversation Context:** The entire conversation flow, builds upon all the questions, thoughts, and options discussed throughout the conversation.
+4. **Full Conversation Context:** The entire conversation flow, builds upon all the questions, thoughts, and options discussed throughout the conversation. This may include a section on "Past hypotheses that did not work" — if present, you MUST learn from these.
+
+**LEARNING FROM PAST FAILURES (CRITICAL when past negative hypotheses are provided):**
+- If the Full Conversation Context includes "Past hypotheses that did not work", you MUST explicitly consider each one.
+- Identify why each past hypothesis failed (status: rejected or needs_revision, and the "Why it failed" explanation).
+- Your new hypothesis MUST NOT repeat the same mistakes, flawed assumptions, or reasoning that led to those failures.
+- Actively adopt a different approach: if past hypotheses assumed X and failed, consider assuming not-X or a different mechanism.
+- Ensure your predictions and tests address the weaknesses that caused past hypotheses to fail.
 
 **Your Task:**
 1. Analyze the Socratic question and next-step option for their core scientific ideas, underlying mechanisms, theoretical foundations, evidence, terminology, and relevant scientific context.

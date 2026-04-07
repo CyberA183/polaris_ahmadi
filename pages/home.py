@@ -36,6 +36,39 @@ if trigger_info_file.exists():
 st.set_page_config(layout="centered")
 st.title("🤖 Multi-Agent AI Framework")
 
+# User and Experiment selector (per-user, per-run)
+with st.expander("👤 User & Experiment", expanded=True):
+    user_id = memory.get_var("current_user_id") or ""
+    exp_id = memory.get_var("current_experiment_id") or 0
+    new_user = st.text_input("User ID", value=user_id, placeholder="e.g. alice, bob", key="home_user_id")
+    if new_user.strip():
+        memory.set_var("current_user_id", new_user.strip())
+        memory.create_user(new_user.strip())
+    uid = memory.get_var("current_user_id") or "default"
+    exp_name = st.text_input("Experiment name (for new)", placeholder="Optional", key="home_exp_name")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("➕ New Experiment", use_container_width=True):
+            if not memory.get_var("current_user_id"):
+                memory.set_var("current_user_id", "default")
+                memory.create_user("default")
+                uid = "default"
+            eid = memory.new_experiment(uid, exp_name.strip() or "")
+            st.success(f"Created experiment #{eid}")
+            st.rerun()
+    with col2:
+        experiments = memory.list_experiments(uid)
+        exp_options = {f"#{e['id']} - {e['name']} ({e['updated_at'][:10]})": e["id"] for e in experiments[:20]}
+        selected = st.selectbox("Load experiment", options=[""] + list(exp_options.keys()), key="home_load_exp")
+        if selected and st.button("Load", key="home_load_btn"):
+            memory.load_experiment(exp_options[selected])
+            st.success(f"Loaded experiment #{exp_options[selected]}")
+            st.rerun()
+    if exp_id and int(exp_id) > 0:
+        exp = memory.get_experiment(int(exp_id))
+        if exp:
+            st.caption(f"**Current:** #{exp['id']} {exp['name']}")
+
 tabs = st.tabs(["Getting Started", "Navigation", "System Overview", "Configuration"])
 
 with tabs[0]:
@@ -43,7 +76,7 @@ with tabs[0]:
     
     ### 🚀 Getting Started
 
-    1. **Configure API Key**: Go to Settings → General and enter your Google Gemini API key
+    1. **Configure API Key**: Go to Settings → General and enter your API key (Gemini or Qwen/DashScope)
     2. **Configure Experiment Settings**: Go to Settings → Experiment and configure Jupyter upload options
     3. **Configure Watcher (Optional)**: Go to Watcher Control → Configuration to set the watch directory and enable the watcher
     4. **Start with Hypothesis**: Navigate to the Hypothesis page and enter your research question

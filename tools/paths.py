@@ -51,7 +51,14 @@ def get_user_data_dir() -> str:
 
 
 def get_db_path() -> str:
-    """Get path to the SQLite database file."""
+    """
+    Get path to the SQLite database file.
+    Use POLARIS_DB_PATH to point to a shared database (e.g. network drive).
+    Example: POLARIS_DB_PATH=Z:\\shared\\polaris.db or \\\\server\\share\\polaris.db
+    """
+    custom = os.environ.get("POLARIS_DB_PATH", "").strip()
+    if custom:
+        return str(Path(custom).expanduser().resolve())
     return str(Path(get_user_data_dir()) / DB_FILENAME)
 
 

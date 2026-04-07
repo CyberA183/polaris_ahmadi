@@ -311,6 +311,20 @@ def wait_for_server(
 
 
 def main():
+    # Load .env so POLARIS_DB_PATH (shared DB) is picked up
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+    except ImportError:
+        pass
+
+    # Create database and schema before starting the app (no Streamlit dependency)
+    try:
+        from init_db import init_database
+        init_database()
+    except Exception as e:
+        print(f"Warning: Could not pre-initialize database: {e}")
+
     if maybe_apply_pending_update():
         return
 

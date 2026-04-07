@@ -39,38 +39,49 @@ class AgentRouter:
                 return agent
         return None
 
-    def _llm_select_agent(self, payload: Dict[str, Any]) -> Optional[Any]:
+    def _llm_select_agent(self, payload: Dict[str, Any], memory: Any) -> Optional[Any]:
         """
         Ask the LLM which agent should run next, given available agents and
-        high‑level context from the current session.
+        high‑level context from the current session (memory or payload.session_context).
         """
         agent_names = [getattr(a, "name", "Unnamed Agent") for a in self.agents]
 
-        # Get context from session state if available
+        # Use session_context from payload (watcher) when available; else memory
+        session_ctx = payload.get("session_context") or {}
         uploaded_files = []
-        last_hypothesis = None
+        last_hypothesis = session_ctx.get("hypothesis_preview")
         experimental_outputs = None
         experimental_constraints = {}
         curve_fitting_results = None
-        
-        if STREAMLIT_AVAILABLE and st is not None:
+
+        if memory:
             try:
                 uploaded_files = memory.get_var("uploaded_files", [])
-                last_hypothesis = memory.get_var("last_hypothesis")
+                last_hypothesis = last_hypothesis or memory.get_var("last_hypothesis")
                 experimental_outputs = memory.get_var("experimental_outputs")
                 experimental_constraints = memory.get_var("experimental_constraints", {})
                 curve_fitting_results = memory.get_var("curve_fitting_results")
             except (RuntimeError, AttributeError, NameError):
-                # Fallback to defaults if session state access fails
                 pass
 
         context = {
-            "payload": payload,
+            "trigger_file": payload.get("trigger_file"),
+            "source": payload.get("source"),
+            "session_context": session_ctx,
             "uploaded_files": uploaded_files,
             "last_hypothesis": last_hypothesis,
             "experimental_outputs": experimental_outputs,
             "experimental_constraints": experimental_constraints,
             "curve_fitting_results": curve_fitting_results is not None,
+            "has_hypothesis": session_ctx.get("has_hypothesis"),
+            "has_experimental_outputs": session_ctx.get("has_experimental_outputs"),
+            "has_curve_fitting_results": session_ctx.get("has_curve_fitting_results"),
+            "has_analysis_results": session_ctx.get("has_analysis_results"),
+            "has_gp_results": session_ctx.get("has_gp_results"),
+            "stage": session_ctx.get("stage"),
+            "workflow_step": session_ctx.get("workflow_step"),
+            "research_goal": session_ctx.get("research_goal"),
+            "hypothesis_ready": session_ctx.get("hypothesis_ready"),
         }
 
         prompt = f"""
@@ -108,13 +119,12 @@ Return ONLY the exact name of the chosen agent from the list above, with no expl
 
         return None
 
-    def _route_manual(self) -> Optional[Any]:
+    def _route_manual(self, memory: Any) -> Optional[Any]:
         """
         Manual workflow: follow `memory.manual_workflow` and
         `memory.workflow_index`.
         """
-        if not STREAMLIT_AVAILABLE:
-            # In headless mode, use default workflow
+        if not memory:
             workflow = ["Hypothesis Agent", "Experiment Agent", "Curve Fitting", "ML Models", "Analysis Agent"]
             index = 0
         else:
@@ -133,6 +143,58 @@ Return ONLY the exact name of the chosen agent from the list above, with no expl
 
         target_name = workflow[index]
         return self._find_agent_by_name(target_name)
+
+    def suggest_next_agent(self, payload: Dict[str, Any], memory: Any) -> Dict[str, Any]:
+        """
+        Suggest which agent should run next without executing it.
+        Returns {"agent": str, "confidence": float, "session_context": dict}.
+        """
+        try:
+            routing_mode = memory.get_var("routing_mode", "Autonomous (LLM)") if memory else "Autonomous (LLM)"
+        except (RuntimeError, AttributeError):
+            routing_mode = "Autonomous (LLM)"
+
+        if routing_mode == "Manual":
+            agent = self._route_manual(memory)
+            return {
+                "agent": getattr(agent, "name", "Fallback Agent") if agent else "Fallback Agent",
+                "confidence": 1.0,
+                "mode": "manual",
+                "session_context": payload.get("session_context") or {},
+            }
+
+        scored = []
+        for agent in self.agents:
+            try:
+                conf = agent.confidence(payload)
+                conf = float(conf) if conf is not None else 0.0
+                scored.append((conf, agent))
+            except Exception:
+                scored.append((0.0, agent))
+
+        if not scored:
+            return {"agent": "Fallback Agent", "confidence": 0.0, "mode": "autonomous", "session_context": payload.get("session_context") or {}}
+
+        scored.sort(reverse=True, key=lambda x: x[0])
+        score, top_agent = scored[0]
+
+        llm_agent = None
+        try:
+            import os
+            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            if api_key:
+                llm_agent = self._llm_select_agent(payload, memory)
+        except Exception:
+            pass
+
+        chosen = llm_agent or top_agent
+        return {
+            "agent": getattr(chosen, "name", "Unknown"),
+            "confidence": float(score) if score is not None else 0.0,
+            "mode": "autonomous",
+            "llm_override": llm_agent is not None,
+            "session_context": payload.get("session_context") or {},
+        }
 
     def route(self, payload: Dict[str, Any], memory: Any) -> Any:
         """
@@ -153,18 +215,14 @@ Return ONLY the exact name of the chosen agent from the list above, with no expl
         except Exception:
             pass
         
-        if STREAMLIT_AVAILABLE:
-            try:
-                routing_mode = memory.get_var("routing_mode", "Autonomous (LLM)")
-            except (RuntimeError, AttributeError):
-                routing_mode = "Autonomous (LLM)"
-        else:
-            # In headless mode, use autonomous routing
+        try:
+            routing_mode = memory.get_var("routing_mode", "Autonomous (LLM)") if memory else "Autonomous (LLM)"
+        except (RuntimeError, AttributeError):
             routing_mode = "Autonomous (LLM)"
 
         # Manual workflow mode – ignore confidence and LLM, follow user order.
         if routing_mode == "Manual":
-            agent = self._route_manual()
+            agent = self._route_manual(memory)
             if agent is None and self.fallback_agent:
                 return self.fallback_agent.run_agent(memory)
             if agent is None:
@@ -221,19 +279,17 @@ Return ONLY the exact name of the chosen agent from the list above, with no expl
             raise RuntimeError("No agent is confident enough.")
 
         # Let the LLM override / confirm the top choice using global context
-        # Skip LLM selection in headless mode (watcher server) to avoid API key dependency
+        # Use LLM when API key is available (Streamlit or headless watcher with session_context)
         llm_agent = None
-        # Only use LLM if Streamlit is available AND we have an API key
-        if STREAMLIT_AVAILABLE:
-            try:
-                import os
-                api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-                if api_key:
-                    llm_agent = self._llm_select_agent(payload)
-                else:
-                    logger.debug("Skipping LLM agent selection - no API key in environment")
-            except Exception as e:
-                logger.warning(f"LLM agent selection failed: {e}")
+        try:
+            import os
+            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            if api_key:
+                llm_agent = self._llm_select_agent(payload, memory)
+            else:
+                logger.debug("Skipping LLM agent selection - no API key in environment")
+        except Exception as e:
+            logger.warning(f"LLM agent selection failed: {e}")
         
         chosen_agent = llm_agent or top_agent
 

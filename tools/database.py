@@ -17,10 +17,35 @@ from tools.paths import get_db_path
 _local = threading.local()
 
 # Default values for app config (from memory.py)
+# Keys that are scoped per experiment (stored in experiment_data)
+EXPERIMENT_SCOPED_KEYS = frozenset([
+    "stage", "last_hypothesis", "experimental_outputs", "analysis_results", "curve_fitting_results",
+    "interactions", "hypothesis_ready", "stop_hypothesis", "hypothesis_round_count",
+    "workflow_active", "workflow_step", "workflow_completed", "workflow_experiment_started",
+    "workflow_experiment_completed", "workflow_experiment_outputs", "research_goal",
+    "current_workflow", "workflow_steps", "conversation_history", "allow_followup",
+    "selected_wells", "plate_format", "last_processed_trigger_time", "watcher_auto_triggered_file",
+    "watcher_auto_trigger_time", "auto_triggered_results", "auto_triggered_results_file",
+    "auto_run_curve_fitting", "auto_run_data_file", "auto_run_comp_file", "auto_run_params",
+    "auto_ml_after_curve_fitting", "auto_route_to_analysis", "workflow_curve_fitting_files",
+    "ml_auto_json_path", "ml_auto_csv_path", "ml_auto_composition_path",
+    "manual_clarified_question", "manual_socratic_questions", "manual_socratic_answers",
+    "manual_thoughts", "manual_hypothesis", "optimization_model_choice", "ml_model_config",
+    "gp_results", "gp_results_available", "analysis_ready", "analysis_recommendations",
+    "gp_suggested_compositions", "analysis_full_report", "analysis_feedback", "next_agent",
+    "pending_additional_question", "workflow_ml_model_choice", "workflow_curve_fitting_completed",
+    "workflow_created_at", "demo_workflow_running", "prompt_session", "current_prompt_session_id",
+])
+
 DEFAULT_APP_CONFIG = {
     "start_time": None,  # Set at init
     "api_key": "",
     "api_key_source": "",
+    "current_user_id": "",
+    "current_experiment_id": 0,  # 0 = no active experiment (use legacy session_state)
+    "llm_provider": "gemini",  # "gemini" | "qwen"
+    "llm_model": "gemini-2.5-flash-lite",  # or "qwen2.5-72b-instruct", "qwen-plus", etc.
+    "qwen_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",  # DashScope OpenAI-compatible endpoint
     "stage": "initial",
     "cf_data_path": "",
     "cf_comp_path": "",
@@ -95,6 +120,8 @@ def _get_conn() -> sqlite3.Connection:
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         _local.conn = sqlite3.connect(db_path, check_same_thread=False)
         _local.conn.row_factory = sqlite3.Row
+        # WAL mode for better concurrent access when using shared DB (network drive)
+        _local.conn.execute("PRAGMA journal_mode=WAL")
     return _local.conn
 
 
@@ -136,13 +163,36 @@ class DatabaseManager:
                 notebook_path TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS experiments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS experiment_data (
+                experiment_id INTEGER PRIMARY KEY,
+                state_json TEXT,
+                FOREIGN KEY (experiment_id) REFERENCES experiments(id)
+            );
+
             CREATE TABLE IF NOT EXISTS conversation_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                experiment_id INTEGER,
                 type TEXT NOT NULL,
                 mode TEXT NOT NULL,
                 prompt_session_id TEXT,
                 timestamp TEXT NOT NULL,
-                payload_json TEXT
+                payload_json TEXT,
+                FOREIGN KEY (experiment_id) REFERENCES experiments(id)
             );
 
             CREATE TABLE IF NOT EXISTS agent_usage_counts (
@@ -177,7 +227,22 @@ class DatabaseManager:
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 state_json TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS negative_hypotheses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hypothesis_text TEXT NOT NULL,
+                status TEXT NOT NULL,
+                research_question TEXT,
+                analysis_summary TEXT,
+                context_json TEXT,
+                created_at TEXT NOT NULL
+            );
         """)
+        # Migration: add experiment_id to conversation_events if missing
+        try:
+            conn.execute("SELECT experiment_id FROM conversation_events LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE conversation_events ADD COLUMN experiment_id INTEGER")
         conn.commit()
 
     def ensure_defaults(self) -> None:
@@ -331,7 +396,7 @@ class DatabaseManager:
         if key == "workflows":
             return self.get_workflows()
 
-        # conversation_events (from table, not session_state)
+        # conversation_events (from table, scoped by experiment if set)
         if key == "conversation_events":
             return self.get_conversation_events()
 
@@ -346,27 +411,22 @@ class DatabaseManager:
             ).fetchall()
             return {r[0]: r[1] for r in rows} if rows else dict(DEFAULT_AGENT_COUNTS)
 
-        # session_state (transient state) - exclude keys handled above
-        if key in DEFAULT_SESSION_STATE or key in (
-            "prompt_session", "current_workflow", "workflow_steps",
-            "interactions", "conversation_history", "allow_followup",
-            "selected_wells", "plate_format", "last_processed_trigger_time",
-            "watcher_auto_triggered_file", "watcher_auto_trigger_time",
-            "auto_triggered_results", "auto_triggered_results_file",
-            "auto_run_curve_fitting", "auto_run_data_file", "auto_run_comp_file",
-            "auto_run_params", "auto_ml_after_curve_fitting", "auto_route_to_analysis",
-            "workflow_curve_fitting_files", "ml_auto_json_path", "ml_auto_csv_path",
-            "ml_auto_composition_path", "manual_clarified_question",
-            "manual_socratic_questions", "manual_socratic_answers",
-            "manual_thoughts", "manual_hypothesis", "optimization_model_choice",
-            "ml_model_config", "gp_results", "gp_results_available",
-            "analysis_ready", "curve_fitting_results", "analysis_results",
-            "analysis_recommendations", "gp_suggested_compositions",
-            "analysis_full_report", "analysis_feedback", "next_agent",
-            "pending_additional_question", "workflow_ml_model_choice",
-            "workflow_curve_fitting_completed", "workflow_created_at",
-            "demo_workflow_running", "editing",
-        ):
+        # experiment-scoped state (or legacy session_state)
+        if key in EXPERIMENT_SCOPED_KEYS:
+            exp_id = self.get("current_experiment_id") or 0
+            if exp_id and int(exp_id) > 0:
+                row = conn.execute(
+                    "SELECT state_json FROM experiment_data WHERE experiment_id = ?",
+                    (int(exp_id),),
+                ).fetchone()
+                if row:
+                    state = json.loads(row[0] or "{}")
+                    if key in state:
+                        val = state[key]
+                        if key == "selected_wells" and isinstance(val, list):
+                            return set(val)
+                        return val
+            # Fallback to legacy session_state
             row = conn.execute(
                 "SELECT state_json FROM session_state WHERE id = 1"
             ).fetchone()
@@ -442,24 +502,54 @@ class DatabaseManager:
                     )
             return
 
-        # session_state
-        row = conn.execute("SELECT state_json FROM session_state WHERE id = 1").fetchone()
-        state = json.loads(row[0] or "{}") if row else {}
+        # experiment-scoped state or legacy session_state
         if key == "selected_wells" and isinstance(value, set):
             value = list(value)
-        state[key] = value
-        conn.execute(
-            "UPDATE session_state SET state_json = ? WHERE id = 1",
-            (json.dumps(state),),
-        )
+        exp_id = self.get("current_experiment_id") or 0
+        if key in EXPERIMENT_SCOPED_KEYS and exp_id and int(exp_id) > 0:
+            row = conn.execute(
+                "SELECT state_json FROM experiment_data WHERE experiment_id = ?",
+                (int(exp_id),),
+            ).fetchone()
+            state = json.loads(row[0] or "{}") if row else {}
+            state[key] = value
+            conn.execute(
+                """INSERT OR REPLACE INTO experiment_data (experiment_id, state_json)
+                   VALUES (?, ?)""",
+                (int(exp_id), json.dumps(state)),
+            )
+            conn.execute(
+                "UPDATE experiments SET updated_at = ? WHERE id = ?",
+                (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), int(exp_id)),
+            )
+        else:
+            row = conn.execute("SELECT state_json FROM session_state WHERE id = 1").fetchone()
+            state = json.loads(row[0] or "{}") if row else {}
+            state[key] = value
+            conn.execute(
+                "UPDATE session_state SET state_json = ? WHERE id = 1",
+                (json.dumps(state),),
+            )
         conn.commit()
 
-    def get_conversation_events(self) -> List[Dict]:
-        """Get all conversation events."""
+    def get_conversation_events(self, experiment_id: Optional[int] = None) -> List[Dict]:
+        """Get conversation events, optionally filtered by experiment_id."""
         conn = _get_conn()
-        rows = conn.execute(
-            "SELECT type, mode, prompt_session_id, timestamp, payload_json FROM conversation_events ORDER BY id"
-        ).fetchall()
+        if experiment_id is None:
+            exp_id = self.get("current_experiment_id") or 0
+            experiment_id = int(exp_id) if exp_id else None
+        if experiment_id and experiment_id > 0:
+            rows = conn.execute(
+                """SELECT type, mode, prompt_session_id, timestamp, payload_json
+                   FROM conversation_events WHERE experiment_id = ?
+                   ORDER BY id""",
+                (experiment_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT type, mode, prompt_session_id, timestamp, payload_json
+                   FROM conversation_events ORDER BY id"""
+            ).fetchall()
         return [
             {
                 "type": r[0],
@@ -474,19 +564,22 @@ class DatabaseManager:
     def append_conversation_event(
         self, event_type: str, mode: str, prompt_session_id: str, payload: dict
     ) -> None:
-        """Append a conversation event."""
+        """Append a conversation event (scoped to current experiment if set)."""
         conn = _get_conn()
-        conn.execute(
-            """INSERT INTO conversation_events (type, mode, prompt_session_id, timestamp, payload_json)
-               VALUES (?, ?, ?, ?, ?)""",
-            (
-                event_type,
-                mode,
-                prompt_session_id,
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                json.dumps(payload),
-            ),
-        )
+        exp_id = self.get("current_experiment_id") or 0
+        exp_id = int(exp_id) if exp_id else None
+        if exp_id and exp_id > 0:
+            conn.execute(
+                """INSERT INTO conversation_events (experiment_id, type, mode, prompt_session_id, timestamp, payload_json)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (exp_id, event_type, mode, prompt_session_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), json.dumps(payload)),
+            )
+        else:
+            conn.execute(
+                """INSERT INTO conversation_events (type, mode, prompt_session_id, timestamp, payload_json)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (event_type, mode, prompt_session_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), json.dumps(payload)),
+            )
         conn.commit()
 
     def get_workflows(self) -> Dict[str, Dict]:
@@ -606,3 +699,143 @@ class DatabaseManager:
             (json.dumps(state),),
         )
         conn.commit()
+
+    def create_user(self, user_id: str, name: str = "") -> None:
+        """Create or replace a user."""
+        conn = _get_conn()
+        conn.execute(
+            "INSERT OR REPLACE INTO users (id, name, created_at) VALUES (?, ?, ?)",
+            (user_id, name or user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+        )
+        conn.commit()
+
+    def get_user(self, user_id: str) -> Optional[Dict]:
+        """Get user by id."""
+        conn = _get_conn()
+        row = conn.execute("SELECT id, name, created_at FROM users WHERE id = ?", (user_id,)).fetchone()
+        return {"id": row[0], "name": row[1], "created_at": row[2]} if row else None
+
+    def list_users(self) -> List[Dict]:
+        """List all users."""
+        conn = _get_conn()
+        rows = conn.execute("SELECT id, name, created_at FROM users ORDER BY created_at DESC").fetchall()
+        return [{"id": r[0], "name": r[1], "created_at": r[2]} for r in rows]
+
+    def create_experiment(self, user_id: str, name: str = "") -> int:
+        """Create a new experiment for a user. Returns experiment id."""
+        conn = _get_conn()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        name = name or f"Experiment {now[:19]}"
+        conn.execute(
+            "INSERT INTO experiments (user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            (user_id, name, now, now),
+        )
+        exp_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.execute(
+            "INSERT INTO experiment_data (experiment_id, state_json) VALUES (?, ?)",
+            (exp_id, json.dumps(dict(DEFAULT_SESSION_STATE))),
+        )
+        conn.commit()
+        return exp_id
+
+    def list_experiments(self, user_id: str, limit: int = 50) -> List[Dict]:
+        """List experiments for a user, most recent first."""
+        conn = _get_conn()
+        rows = conn.execute(
+            "SELECT id, name, created_at, updated_at FROM experiments WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+        return [
+            {"id": r[0], "name": r[1], "created_at": r[2], "updated_at": r[3]}
+            for r in rows
+        ]
+
+    def get_experiment(self, experiment_id: int) -> Optional[Dict]:
+        """Get experiment by id."""
+        conn = _get_conn()
+        row = conn.execute(
+            "SELECT id, user_id, name, created_at, updated_at FROM experiments WHERE id = ?",
+            (experiment_id,),
+        ).fetchone()
+        return {
+            "id": row[0],
+            "user_id": row[1],
+            "name": row[2],
+            "created_at": row[3],
+            "updated_at": row[4],
+        } if row else None
+
+    def set_current_experiment(self, experiment_id: int, user_id: str = "") -> None:
+        """Set the active experiment and optionally user."""
+        conn = _get_conn()
+        if user_id:
+            self._set_config_value(conn, "current_user_id", user_id)
+        self._set_config_value(conn, "current_experiment_id", experiment_id)
+        conn.commit()
+
+    def load_experiment_into_session(self, experiment_id: int) -> None:
+        """Copy experiment data to legacy session_state for backward compat when switching experiments."""
+        conn = _get_conn()
+        row = conn.execute(
+            "SELECT state_json FROM experiment_data WHERE experiment_id = ?",
+            (experiment_id,),
+        ).fetchone()
+        if row and row[0]:
+            conn.execute(
+                "UPDATE session_state SET state_json = ? WHERE id = 1",
+                (row[0],),
+            )
+            conn.commit()
+
+    def add_negative_hypothesis(
+        self,
+        hypothesis_text: str,
+        status: str,
+        research_question: str = "",
+        analysis_summary: str = "",
+        context_json: Optional[str] = None,
+    ) -> None:
+        """Store a hypothesis that was rejected or needs revision for model learning."""
+        conn = _get_conn()
+        conn.execute(
+            """INSERT INTO negative_hypotheses
+               (hypothesis_text, status, research_question, analysis_summary, context_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                hypothesis_text,
+                status,
+                research_question or "",
+                analysis_summary or "",
+                context_json,
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            ),
+        )
+        conn.commit()
+
+    def get_negative_hypotheses(self, limit: Optional[int] = None) -> List[Dict]:
+        """Retrieve negative hypotheses for model context/learning. Use limit=None for all."""
+        conn = _get_conn()
+        if limit is not None:
+            rows = conn.execute(
+                """SELECT hypothesis_text, status, research_question, analysis_summary, created_at
+                   FROM negative_hypotheses
+                   ORDER BY id DESC
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT hypothesis_text, status, research_question, analysis_summary, created_at
+                   FROM negative_hypotheses
+                   ORDER BY id DESC"""
+            ).fetchall()
+        return [
+            {
+                "hypothesis_text": r[0],
+                "status": r[1],
+                "research_question": r[2] or "",
+                "analysis_summary": r[3] or "",
+                "created_at": r[4] or "",
+            }
+            for r in rows
+        ]

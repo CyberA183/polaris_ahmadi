@@ -20,8 +20,51 @@ general, experiment, cache = st.tabs(
 
 with general:
 
-    # Changing API Key
+    # LLM Provider and Model
+    st.markdown("##### LLM Provider")
+    llm_provider = st.selectbox(
+        "Model provider:",
+        ["gemini", "qwen"],
+        format_func=lambda x: "Google Gemini" if x == "gemini" else "Qwen 2.5 (Alibaba DashScope)",
+        index=0 if (memory.get_var("llm_provider") or "gemini") == "gemini" else 1,
+        key="llm_provider_select",
+    )
+    memory.set_var("llm_provider", llm_provider)
+
+    if llm_provider == "gemini":
+        llm_model = st.text_input(
+            "Gemini model ID:",
+            value=memory.get_var("llm_model") or "gemini-2.5-flash-lite",
+            help="e.g. gemini-2.5-flash-lite, gemini-2.0-flash-lite",
+            key="llm_model_gemini",
+        )
+    else:
+        llm_model = st.selectbox(
+            "Qwen model:",
+            ["qwen2.5-72b-instruct", "qwen2.5-32b-instruct", "qwen2.5-14b-instruct", "qwen2.5-7b-instruct", "qwen-plus", "qwen-turbo"],
+            index=0,
+            key="llm_model_qwen",
+        )
+        custom_model = st.text_input("Or custom model ID:", value="", key="qwen_custom_model", placeholder="e.g. qwen3-32b")
+        if custom_model.strip():
+            llm_model = custom_model.strip()
+        qwen_base_url = st.selectbox(
+            "DashScope region:",
+            [
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+                "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+            ],
+            format_func=lambda u: "Beijing" if "us" not in u and "intl" not in u else ("International" if "intl" in u else "US"),
+            key="qwen_base_url",
+        )
+        memory.set_var("qwen_base_url", qwen_base_url)
+    memory.set_var("llm_model", llm_model)
+
+    # API Key
     st.markdown("##### API Key Configuration")
+    key_label = "DashScope API Key (Qwen):" if llm_provider == "qwen" else "Google Gemini API Key:"
+    key_help = "Get key from https://dashscope.console.aliyun.com/" if llm_provider == "qwen" else "Get key from https://makersuite.google.com/app/apikey"
 
     # Track editing mode
     editing = memory.get_var("editing", False)
@@ -42,10 +85,10 @@ with general:
             st.info("Currently using API key from Streamlit secrets. Click 'Edit API Key' to set a custom one.")
 
         api_key_input = st.text_input(
-            "Google Gemini API Key:",
+            key_label,
             value="" if editing else memory.get_var("api_key", ""),
             type="password",
-            help="Enter your Google Gemini API key. It will be saved securely and persist across page navigations.",
+            help=key_help,
             key="api_key_input",
             placeholder="Enter your API key here..." if editing else None,
         )
@@ -59,15 +102,24 @@ with general:
                     memory.set_var("api_key", api_key)
                     memory.set_var("api_key_source", "user")
                     memory.set_var("editing", False)
-                    os.environ["GEMINI_API_KEY"] = api_key
-                    os.environ["GOOGLE_API_KEY"] = api_key
+                    os.environ["LLM_API_KEY"] = api_key
+                    os.environ["LLM_PROVIDER"] = llm_provider
+                    os.environ["LLM_MODEL"] = llm_model
+                    if llm_provider == "gemini":
+                        os.environ["GEMINI_API_KEY"] = api_key
+                        os.environ["GOOGLE_API_KEY"] = api_key
+                    else:
+                        os.environ["DASHSCOPE_API_KEY"] = api_key
+                        os.environ["QWEN_BASE_URL"] = memory.get_var("qwen_base_url") or "https://dashscope.aliyuncs.com/compatible-mode/v1"
                     try:
                         env_path = get_env_path()
                         with open(env_path, "w") as f:
-                            f.write(f"GEMINI_API_KEY={api_key}\n")
+                            f.write(f"LLM_API_KEY={api_key}\nLLM_PROVIDER={llm_provider}\nLLM_MODEL={llm_model}\n")
+                            if llm_provider == "qwen":
+                                f.write(f"QWEN_BASE_URL={memory.get_var('qwen_base_url') or 'https://dashscope.aliyuncs.com/compatible-mode/v1'}\n")
                     except Exception:
                         pass
-                    st.success("Your API key has been saved successfully!")
+                    st.success("Your API key and settings have been saved successfully!")
                     st.rerun()
                 else:
                     st.error("Please enter your API key and try again.")
@@ -140,6 +192,54 @@ with experiment:
         memory.set_var("experiment_data_dir", experiment_data_dir)
 
 with cache:
+    st.markdown("##### Record Negative Hypothesis")
+    st.markdown("Manually add hypotheses that did not work (e.g., from lab notebooks). The model uses these to avoid similar mistakes.")
+    with st.expander("Add past negative hypothesis", expanded=False):
+        manual_hypothesis = st.text_area(
+            "Hypothesis text:",
+            placeholder="Paste the hypothesis that did not work...",
+            key="manual_neg_hypothesis",
+        )
+        manual_status = st.selectbox(
+            "Status:",
+            ["rejected", "needs_revision"],
+            format_func=lambda x: "Rejected" if x == "rejected" else "Needs revision",
+            key="manual_neg_status",
+        )
+        manual_reason = st.text_area(
+            "Why it didn't work:",
+            placeholder="e.g., Experimental data contradicted predictions; R² was too low...",
+            key="manual_neg_reason",
+        )
+        manual_research_q = st.text_input(
+            "Research question (optional):",
+            placeholder="The clarified question this hypothesis addressed",
+            key="manual_neg_research_q",
+        )
+        if st.button("Save negative hypothesis", use_container_width=True, key="save_manual_neg"):
+            if manual_hypothesis and manual_hypothesis.strip():
+                memory.add_negative_hypothesis(
+                    hypothesis_text=manual_hypothesis[:4000],
+                    status=manual_status,
+                    research_question=manual_research_q or "",
+                    analysis_summary=manual_reason[:2000] if manual_reason else "",
+                )
+                st.success("Saved. The model will use this when generating new hypotheses.")
+                st.rerun()
+            else:
+                st.error("Please enter the hypothesis text.")
+
+    # Show stored negative hypotheses
+    neg_hyps = memory.get_negative_hypotheses(limit=10)
+    if neg_hyps:
+        with st.expander(f"View stored negative hypotheses ({len(neg_hyps)} recent)", expanded=False):
+            for i, nh in enumerate(neg_hyps, 1):
+                st.markdown(f"**{i}. [{nh.get('status', '?')}]** {nh.get('created_at', '')}")
+                st.caption((nh.get("hypothesis_text") or "")[:200] + ("..." if len(nh.get("hypothesis_text", "") or "") > 200 else ""))
+    else:
+        st.caption("No negative hypotheses recorded yet.")
+
+    st.markdown("---")
     st.markdown("##### Cache Management")
     st.markdown("Clear cached data from the application to force fresh computations.")
 
