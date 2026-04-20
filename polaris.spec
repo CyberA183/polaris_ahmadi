@@ -36,6 +36,8 @@ hiddenimports = sorted(
             "streamlit.runtime.scriptrunner.magic_funcs",
             "webview",
             "webview.menu",
+            # Use the WebView2/EdgeChromium backend; WinForms (pythonnet/clr) is excluded
+            "webview.platforms.edgechromium",
             "watcher.server",
             "watchdog",
             "watchdog.events",
@@ -76,7 +78,10 @@ hiddenimports = sorted(
             "tools.updater.version",
         ]
         + collect_submodules("sklearn")
-        + collect_submodules("webview", filter=lambda name: "android" not in name)
+        + collect_submodules(
+            "webview",
+            filter=lambda name: "android" not in name and "winforms" not in name,
+        )
         + collect_submodules("watchdog")
     )
 )
@@ -91,6 +96,11 @@ excludes = [
     "numpy.tests",
     "scipy.tests",
     "pandas.tests",
+    # WinForms backend and its .NET dependencies are not needed; EdgeChromium is used instead
+    "webview.platforms.winforms",
+    "clr",
+    "clr_loader",
+    "pythonnet",
 ]
 
 a = Analysis(

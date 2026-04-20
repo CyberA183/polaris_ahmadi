@@ -20,6 +20,13 @@ import time
 import urllib.error
 import urllib.request
 
+# Force the WebView2/EdgeChromium backend on Windows.
+# This avoids the pythonnet/clr "Failed to resolve Python.Runtime.Loader.Initialize"
+# crash that occurs when the WinForms backend tries to load Python.Runtime.dll in a
+# PyInstaller bundle.  WebView2 ships with Windows 10/11 and requires no .NET runtime.
+if sys.platform == "win32":
+    os.environ.setdefault("PYWEBVIEW_GUI", "edgechromium")
+
 import webview
 import webview.menu as wm
 
