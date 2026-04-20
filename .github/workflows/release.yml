@@ -33,7 +33,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller>=6.0.0 pythonnet
+          pip install pyinstaller>=6.0.0
+          # pythonnet is required by pywebview on Windows; not needed on macOS
+          pip install pythonnet
 
       - name: Build with PyInstaller
         run: pyinstaller polaris.spec --noconfirm

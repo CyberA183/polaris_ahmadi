@@ -25,10 +25,13 @@ datas = [
 ]
 datas += collect_data_files("streamlit")
 datas += collect_data_files("sklearn")
-datas += collect_data_files("pythonnet")
 datas += copy_metadata("streamlit")
 datas += copy_metadata("pywebview")
-datas += copy_metadata("pythonnet")
+
+# pythonnet ships with Windows only; the macOS Cocoa backend does not need it
+if sys.platform == "win32":
+    datas += collect_data_files("pythonnet")
+    datas += copy_metadata("pythonnet")
 
 hiddenimports = sorted(
     set(
@@ -76,15 +79,16 @@ hiddenimports = sorted(
             "tools.updater.update_helper",
             "tools.updater.updater",
             "tools.updater.version",
-            # pythonnet / clr — required by pywebview WinForms backend on Windows
-            "clr",
-            "clr_loader",
-            "clr_loader.find_runtimes",
-            "pythonnet",
+            "tools.updater",
+            "tools.updater.update_helper",
+            "tools.updater.updater",
+            "tools.updater.version",
         ]
         + collect_submodules("sklearn")
         + collect_submodules("webview", filter=lambda name: "android" not in name)
         + collect_submodules("watchdog")
+        # pythonnet / clr — required by pywebview WinForms backend on Windows only
+        + (["clr", "clr_loader", "clr_loader.find_runtimes", "pythonnet"] if sys.platform == "win32" else [])
     )
 )
 
@@ -100,6 +104,9 @@ excludes = [
     "pandas.tests",
 ]
 
+# Runtime hook sets PYTHONNET_RUNTIME=coreclr before any frozen import; Windows only.
+_runtime_hooks = ["hooks/pyi_rth_pythonnet.py"] if sys.platform == "win32" else []
+
 a = Analysis(
     ["run_app.py"],
     pathex=[str(project_root)],
@@ -108,7 +115,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=["hooks"],
     hooksconfig={},
-    runtime_hooks=["hooks/pyi_rth_pythonnet.py"],
+    runtime_hooks=_runtime_hooks,
     excludes=excludes,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
