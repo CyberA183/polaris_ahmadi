@@ -18,17 +18,37 @@ def is_frozen() -> bool:
     return getattr(sys, "frozen", False)
 
 
+def get_runtime_root() -> Path:
+    """
+    Resolve the runtime root for resources and scripts.
+
+    Priority:
+    1) Explicit override via POLARIS_RUNTIME_ROOT
+    2) PyInstaller temp root when frozen
+    3) Current working directory if it contains app entry resources
+    4) Project root relative to this module
+    """
+    explicit_root = os.environ.get("POLARIS_RUNTIME_ROOT", "").strip()
+    if explicit_root:
+        return Path(explicit_root).expanduser().resolve()
+
+    if is_frozen():
+        return Path(getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))).resolve()
+
+    cwd = Path.cwd().resolve()
+    if (cwd / "streamlit_app.py").exists() and (cwd / "tools").exists():
+        return cwd
+
+    return Path(__file__).resolve().parent.parent
+
+
 def get_resource_path(relative_path: str) -> str:
     """
     Get absolute path to a resource. Works for both dev and PyInstaller.
     For frozen: resources are in sys._MEIPASS.
     For dev: relative to project root.
     """
-    if is_frozen():
-        base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
-    else:
-        base = Path(__file__).parent.parent
-    return str(Path(base) / relative_path)
+    return str((get_runtime_root() / relative_path).resolve())
 
 
 def get_user_data_dir() -> str:

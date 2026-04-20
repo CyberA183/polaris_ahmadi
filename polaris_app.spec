@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+# Deprecated: retained temporarily during Briefcase migration.
 
 import os
 import sys

@@ -16,12 +16,28 @@ jobs:
         include:
           - label: macOS
             runner: macos-latest
-            asset_name: Polaris.app.zip
+            app_name: polaris_desktop
+            target: macOS
+            asset_name: Polaris-macos-briefcase.zip
             artifact_name: macos-build
           - label: Windows
             runner: windows-latest
-            asset_name: Polaris-win.zip
+            app_name: polaris_desktop
+            target: windows
+            asset_name: Polaris-windows-briefcase.zip
             artifact_name: windows-build
+          - label: Android
+            runner: macos-latest
+            app_name: polaris_mobile
+            target: android
+            asset_name: Polaris-android-briefcase.tar.gz
+            artifact_name: android-build
+          - label: iOS
+            runner: macos-latest
+            app_name: polaris_mobile
+            target: iOS
+            asset_name: Polaris-ios-briefcase.tar.gz
+            artifact_name: ios-build
 
     steps:
       - name: Check out repository
@@ -32,22 +48,40 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install build tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m pip install briefcase
 
-      - name: Build packaged app
-        run: python -m PyInstaller --clean --noconfirm polaris.spec
+      - name: Set up Java for Android builds
+        if: matrix.target == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
 
-      - name: Package macOS build
-        if: runner.os == 'macOS'
-        run: ditto -c -k --sequesterRsrc --keepParent "dist/Polaris.app" "${{ matrix.asset_name }}"
+      - name: Set up Android SDK
+        if: matrix.target == 'android'
+        uses: android-actions/setup-android@v3
 
-      - name: Package Windows build
+      - name: Build packaged app with Briefcase
+        run: |
+          briefcase create ${{ matrix.target }} -a ${{ matrix.app_name }} --no-input
+          briefcase build ${{ matrix.target }} -a ${{ matrix.app_name }} --no-input
+          briefcase package ${{ matrix.target }} -a ${{ matrix.app_name }} --no-input
+
+      - name: Archive macOS artifact
+        if: matrix.target == 'macOS'
+        run: ditto -c -k --sequesterRsrc --keepParent dist "${{ matrix.asset_name }}"
+
+      - name: Archive mobile artifact
+        if: matrix.target == 'android' || matrix.target == 'iOS'
+        run: tar -czf "${{ matrix.asset_name }}" dist build
+
+      - name: Archive Windows artifact
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path "dist/Polaris" -DestinationPath "${{ matrix.asset_name }}" -Force
+        run: Compress-Archive -Path "dist\*", "build\*" -DestinationPath "${{ matrix.asset_name }}" -Force
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
@@ -57,19 +91,11 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Publish Latest Release Assets
+    name: Aggregate Build Artifacts
     runs-on: ubuntu-latest
     needs: build
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
       - name: Download packaged artifacts
         uses: actions/download-artifact@v4
         with:
@@ -77,60 +103,17 @@ jobs:
 
       - name: Normalize artifact layout
         run: |
-          cp "release-assets/macos-build/Polaris.app.zip" "release-assets/Polaris.app.zip"
-          cp "release-assets/windows-build/Polaris-win.zip" "release-assets/Polaris-win.zip"
+          cp "release-assets/macos-build/Polaris-macos-briefcase.zip" "release-assets/Polaris-macos-briefcase.zip"
+          cp "release-assets/windows-build/Polaris-windows-briefcase.zip" "release-assets/Polaris-windows-briefcase.zip"
+          cp "release-assets/android-build/Polaris-android-briefcase.tar.gz" "release-assets/Polaris-android-briefcase.tar.gz"
+          cp "release-assets/ios-build/Polaris-ios-briefcase.tar.gz" "release-assets/Polaris-ios-briefcase.tar.gz"
 
-      - name: Resolve latest release tag
-        id: latest_release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: |
-          tag_name="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq 'map(select(.draft == false)) | sort_by(.published_at) | reverse | .[0].tag_name')"
-          if [ -z "${tag_name}" ]; then
-            echo "No published GitHub release was found." >&2
-            exit 1
-          fi
-          echo "tag_name=${tag_name}" >> "${GITHUB_OUTPUT}"
-
-      - name: Generate version manifest
-        env:
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          RELEASE_TAG: ${{ steps.latest_release.outputs.tag_name }}
-        run: |
-          python <<'PY'
-          import importlib.util
-          import json
-          from pathlib import Path
-
-          version_path = Path("tools/updater/version.py")
-          spec = importlib.util.spec_from_file_location("polaris_updater_version", version_path)
-          module = importlib.util.module_from_spec(spec)
-          assert spec.loader is not None
-          spec.loader.exec_module(module)
-
-          asset_base = f"https://github.com/{__import__('os').environ['GITHUB_REPOSITORY']}/releases/download/{__import__('os').environ['RELEASE_TAG']}"
-          manifest = {
-              "version": module.APP_VERSION,
-              "notes": "Automated cross-platform build",
-              "macos": {
-                  "url": f"{asset_base}/{module.DEFAULT_MACOS_ASSET_NAME}",
-              },
-              "windows": {
-                  "url": f"{asset_base}/{module.DEFAULT_WINDOWS_ASSET_NAME}",
-              },
-          }
-
-          output_path = Path("release-assets/version.json")
-          output_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-          PY
-
-      - name: Upload assets to latest release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release upload "${{ steps.latest_release.outputs.tag_name }}" \
-            "release-assets/Polaris.app.zip" \
-            "release-assets/Polaris-win.zip" \
-            "release-assets/version.json" \
-            --clobber
+      - name: Upload merged artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: briefcase-cross-platform-builds
+          path: |
+            release-assets/Polaris-macos-briefcase.zip
+            release-assets/Polaris-windows-briefcase.zip
+            release-assets/Polaris-android-briefcase.tar.gz
+            release-assets/Polaris-ios-briefcase.tar.gz

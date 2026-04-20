@@ -1,4 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
+# Deprecated: retained temporarily during Briefcase migration.
+# Primary packaging is now configured in pyproject.toml via Briefcase.
 
 from pathlib import Path
 import sys

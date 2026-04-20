@@ -22,7 +22,6 @@ kaleido
 fastapi
 uvicorn
 altair==4.2.2
-pyinstaller>=6.0.0
+briefcase>=0.3.20
 pywebview>=4.0
 pillow
-openai

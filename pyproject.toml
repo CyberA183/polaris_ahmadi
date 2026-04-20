@@ -1,0 +1,142 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "polaris-ahmadi"
+version = "0.1.0"
+description = "Cross-platform Polaris launcher and mobile shell"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [
+  { name = "Polaris Team" }
+]
+dependencies = [
+  "numpy",
+  "pandas",
+  "openpyxl",
+  "matplotlib",
+  "transformers",
+  "scipy",
+  "torch",
+  "lmfit",
+  "google-generativeai",
+  "openai>=1.0.0",
+  "python-dotenv",
+  "scikit-learn",
+  "streamlit>=1.36.0",
+  "futurehouse-client",
+  "edison-client",
+  "requests",
+  "watchdog",
+  "reportlab",
+  "psutil",
+  "plotly",
+  "kaleido",
+  "fastapi",
+  "uvicorn",
+  "altair==4.2.2",
+  "pywebview>=4.0",
+  "pillow",
+]
+
+[project.optional-dependencies]
+desktop-windows = [
+  "pythonnet",
+]
+mobile = [
+  "toga>=0.4.8",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.briefcase]
+project_name = "Polaris Ahmadi"
+bundle = "com.polarisahmadi"
+version = "0.1.0"
+url = "https://github.com/CyberA183/polaris_ahmadi"
+license = "Proprietary"
+author = "Polaris Team"
+author_email = "team@polarisahmadi.com"
+
+[tool.briefcase.app.polaris_desktop]
+formal_name = "Polaris Ahmadi"
+description = "Desktop launcher for the Polaris Streamlit application"
+long_description = "Native desktop launcher that runs Polaris Streamlit locally."
+sources = [
+  "src/polaris_desktop",
+  "run_app.py",
+  "init_db.py",
+  "streamlit_app.py",
+  "pages",
+  "agents",
+  "tools",
+  "watcher",
+  "data",
+]
+test_sources = ["tests"]
+requires = [
+  "numpy",
+  "pandas",
+  "openpyxl",
+  "matplotlib",
+  "transformers",
+  "scipy",
+  "torch",
+  "lmfit",
+  "google-generativeai",
+  "openai>=1.0.0",
+  "python-dotenv",
+  "scikit-learn",
+  "streamlit>=1.36.0",
+  "futurehouse-client",
+  "edison-client",
+  "requests",
+  "watchdog",
+  "reportlab",
+  "psutil",
+  "plotly",
+  "kaleido",
+  "fastapi",
+  "uvicorn",
+  "altair==4.2.2",
+  "pywebview>=4.0",
+  "pillow",
+]
+
+[tool.briefcase.app.polaris_desktop.macOS]
+requires = []
+
+[tool.briefcase.app.polaris_desktop.windows]
+requires = [
+  "pythonnet",
+]
+
+[tool.briefcase.app.polaris_mobile]
+formal_name = "Polaris Mobile"
+description = "Mobile shell app for Polaris on iOS and Android"
+long_description = "Mobile entrypoint and packaging target for Polaris."
+sources = [
+  "src/polaris_mobile",
+  "tools",
+]
+test_sources = ["tests"]
+requires = [
+  "toga>=0.4.8",
+]
+
+[tool.briefcase.app.polaris_mobile.android]
+requires = [
+  "toga-android>=0.4.8",
+]
+
+[tool.briefcase.app.polaris_mobile.iOS]
+requires = [
+  "toga-iOS>=0.4.8",
+]

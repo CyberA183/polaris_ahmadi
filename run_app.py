@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import socket
 import subprocess
 import sys
 import threading
@@ -53,14 +54,14 @@ APP_TITLE = "Polaris Ahmadi"
 STREAMLIT_PORT = 8501
 STARTUP_TIMEOUT_SECONDS = 30
 SERVER_POLL_INTERVAL_SECONDS = 0.2
-DEBUG_LOG_PATH = Path("/Users/arielthompson/Documents/IAMM_Research/polaris_ahmadi/.cursor/debug-c97a27.log")
+DEBUG_LOG_PATH = Path("/Users/arielthompson/Documents/IAMM_Research/polaris_ahmadi/.cursor/debug-dd0640.log")
 
 
 # region agent log
 def _debug_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
     try:
         payload = {
-            "sessionId": "c97a27",
+            "sessionId": "dd0640",
             "runId": "pre-fix",
             "hypothesisId": hypothesis_id,
             "location": location,
@@ -73,6 +74,12 @@ def _debug_log(hypothesis_id: str, location: str, message: str, data: dict) -> N
     except Exception:
         pass
 # endregion
+
+
+def _is_port_in_use(port: int, host: str = "127.0.0.1") -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.15)
+        return sock.connect_ex((host, port)) == 0
 
 
 def _run_frozen_module_entrypoint() -> None:
@@ -381,6 +388,56 @@ def main():
 
     window = webview.create_window(APP_TITLE, html=LOADING_HTML)
 
+    bundle_root = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    streamlit_spec_origin = None
+    streamlit_static_candidates = []
+    streamlit_static_exists = False
+    try:
+        streamlit_spec = importlib.util.find_spec("streamlit")
+        streamlit_spec_origin = getattr(streamlit_spec, "origin", None)
+        if streamlit_spec_origin:
+            package_root = Path(streamlit_spec_origin).resolve().parent
+            streamlit_static_candidates = [
+                str(package_root / "static" / "index.html"),
+                str(package_root / "web" / "static" / "index.html"),
+            ]
+            streamlit_static_exists = any(Path(path).exists() for path in streamlit_static_candidates)
+    except Exception:
+        streamlit_spec_origin = "<error>"
+
+    # region agent log
+    _debug_log(
+        "H1",
+        "run_app.py:main",
+        "Resolved Streamlit package/static paths",
+        {
+            "platform": sys.platform,
+            "frozen": bool(getattr(sys, "frozen", False)),
+            "sys_executable": sys.executable,
+            "cwd": os.getcwd(),
+            "meipass": getattr(sys, "_MEIPASS", None),
+            "bundle_root": str(bundle_root),
+            "app_path": app_path,
+            "app_path_exists": Path(app_path).exists(),
+            "streamlit_spec_origin": streamlit_spec_origin,
+            "streamlit_static_candidates": streamlit_static_candidates,
+            "streamlit_static_exists": streamlit_static_exists,
+        },
+    )
+    # endregion
+
+    # region agent log
+    _debug_log(
+        "H3",
+        "run_app.py:main",
+        "Pre-launch port occupancy probe",
+        {
+            "port": port,
+            "localhost_port_in_use": _is_port_in_use(port),
+        },
+    )
+    # endregion
+
     def show_info_window(title: str, message: str) -> None:
         webview.create_window(
             title,
@@ -623,7 +680,6 @@ def main():
     ]
 
     # region agent log
-    bundle_root = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
     python_runtime_candidates = sorted(
         str(path) for path in bundle_root.rglob("Python.Runtime.dll")
     )[:10]
