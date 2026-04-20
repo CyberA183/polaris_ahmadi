@@ -627,6 +627,15 @@ def main():
     python_runtime_candidates = sorted(
         str(path) for path in bundle_root.rglob("Python.Runtime.dll")
     )[:10]
+
+    def _safe_find_spec(name: str):
+        """find_spec can raise ValueError when a module was partially imported."""
+        try:
+            spec = importlib.util.find_spec(name)
+            return getattr(spec, "origin", None)
+        except Exception:
+            return "<error>"
+
     _debug_log(
         "H1",
         "run_app.py:webview-start",
@@ -638,10 +647,10 @@ def main():
             "meipass": getattr(sys, "_MEIPASS", None),
             "bundle_root": str(bundle_root),
             "webview_module": getattr(webview, "__file__", None),
-            "winforms_spec": getattr(importlib.util.find_spec("webview.platforms.winforms"), "origin", None),
-            "edgechromium_spec": getattr(importlib.util.find_spec("webview.platforms.edgechromium"), "origin", None),
-            "clr_spec": getattr(importlib.util.find_spec("clr"), "origin", None),
-            "pythonnet_spec": getattr(importlib.util.find_spec("pythonnet"), "origin", None),
+            "winforms_spec": _safe_find_spec("webview.platforms.winforms"),
+            "edgechromium_spec": _safe_find_spec("webview.platforms.edgechromium"),
+            "clr_spec": _safe_find_spec("clr"),
+            "pythonnet_spec": _safe_find_spec("pythonnet"),
             "python_runtime_candidates": python_runtime_candidates,
             "menu_count": len(menu_items),
         },
@@ -663,18 +672,51 @@ def main():
         _debug_log(
             "H3",
             "run_app.py:webview-start",
-            "webview.start raised an exception",
+            "webview.start raised an exception — will attempt browser fallback",
             {
                 "error_type": type(exc).__name__,
                 "error": str(exc),
-                "winforms_spec": getattr(importlib.util.find_spec("webview.platforms.winforms"), "origin", None),
-                "clr_spec": getattr(importlib.util.find_spec("clr"), "origin", None),
-                "pythonnet_spec": getattr(importlib.util.find_spec("pythonnet"), "origin", None),
+                "winforms_spec": _safe_find_spec("webview.platforms.winforms"),
+                "clr_spec": _safe_find_spec("clr"),
+                "pythonnet_spec": _safe_find_spec("pythonnet"),
                 "python_runtime_candidates": python_runtime_candidates,
             },
         )
         # endregion
-        raise
+
+        # Native window failed (missing .NET Desktop Runtime, pythonnet issue, etc.).
+        # Fall back to launching Streamlit and opening the system browser so the app
+        # remains usable on machines that lack the required .NET components.
+        log_message(
+            f"Native window unavailable ({type(exc).__name__}: {exc}). "
+            "Falling back to browser mode."
+        )
+        try:
+            import webbrowser
+
+            existing_proc = proc_holder.get("proc")
+            if existing_proc is None or existing_proc.poll() is not None:
+                env = os.environ.copy()
+                env["STREAMLIT_GLOBAL_DEVELOPMENT_MODE"] = "false"
+                env["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
+                env["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
+                log_handle = open(log_path, "a", encoding="utf-8")
+                fallback_proc = subprocess.Popen(
+                    cmd, stdout=log_handle, stderr=subprocess.STDOUT, env=env
+                )
+                log_handle.close()
+                proc_holder["proc"] = fallback_proc
+                atexit.register(kill_server, fallback_proc)
+
+            if wait_for_server(url, proc=proc_holder["proc"]):
+                log_message(f"Streamlit ready — opening {url} in default browser")
+                webbrowser.open(url)
+                proc_holder["proc"].wait()
+            else:
+                log_message("Browser fallback: Streamlit server did not become ready.")
+        except Exception as fallback_exc:
+            log_message(f"Browser fallback also failed: {fallback_exc}")
+
     kill_server(proc_holder["proc"])
 
 
