@@ -3,7 +3,7 @@
 from pathlib import Path
 import sys
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules, copy_metadata
 
 block_cipher = None
 project_root = Path(SPECPATH).resolve()
@@ -25,8 +25,10 @@ datas = [
 ]
 datas += collect_data_files("streamlit")
 datas += collect_data_files("sklearn")
+datas += collect_data_files("pythonnet")
 datas += copy_metadata("streamlit")
 datas += copy_metadata("pywebview")
+datas += copy_metadata("pythonnet")
 
 hiddenimports = sorted(
     set(
@@ -36,8 +38,6 @@ hiddenimports = sorted(
             "streamlit.runtime.scriptrunner.magic_funcs",
             "webview",
             "webview.menu",
-            # Use the WebView2/EdgeChromium backend; WinForms (pythonnet/clr) is excluded
-            "webview.platforms.edgechromium",
             "watcher.server",
             "watchdog",
             "watchdog.events",
@@ -76,12 +76,14 @@ hiddenimports = sorted(
             "tools.updater.update_helper",
             "tools.updater.updater",
             "tools.updater.version",
+            # pythonnet / clr — required by pywebview WinForms backend on Windows
+            "clr",
+            "clr_loader",
+            "clr_loader.find_runtimes",
+            "pythonnet",
         ]
         + collect_submodules("sklearn")
-        + collect_submodules(
-            "webview",
-            filter=lambda name: "android" not in name and "winforms" not in name,
-        )
+        + collect_submodules("webview", filter=lambda name: "android" not in name)
         + collect_submodules("watchdog")
     )
 )
@@ -96,11 +98,6 @@ excludes = [
     "numpy.tests",
     "scipy.tests",
     "pandas.tests",
-    # WinForms backend and its .NET dependencies are not needed; EdgeChromium is used instead
-    "webview.platforms.winforms",
-    "clr",
-    "clr_loader",
-    "pythonnet",
 ]
 
 a = Analysis(
@@ -109,9 +106,9 @@ a = Analysis(
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
-    hookspath=[],
+    hookspath=["hooks"],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=["hooks/pyi_rth_pythonnet.py"],
     excludes=excludes,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

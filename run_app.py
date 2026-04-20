@@ -20,12 +20,14 @@ import time
 import urllib.error
 import urllib.request
 
-# Force the WebView2/EdgeChromium backend on Windows.
-# This avoids the pythonnet/clr "Failed to resolve Python.Runtime.Loader.Initialize"
-# crash that occurs when the WinForms backend tries to load Python.Runtime.dll in a
-# PyInstaller bundle.  WebView2 ships with Windows 10/11 and requires no .NET runtime.
+# Force pythonnet to use the .NET Core (coreclr) runtime loader instead of the legacy
+# .NET Framework COM loader (netfx).  The netfx loader fails in PyInstaller bundles
+# because ICorRuntimeHost cannot locate Python.Runtime.dll through the COM registry.
+# coreclr resolves the DLL directly via the .NET host API and works reliably frozen.
+# Requires .NET 6+ to be installed on the host machine (ships with Windows 11 and
+# available free at https://dotnet.microsoft.com/download).
 if sys.platform == "win32":
-    os.environ.setdefault("PYWEBVIEW_GUI", "edgechromium")
+    os.environ.setdefault("PYTHONNET_RUNTIME", "coreclr")
 
 import webview
 import webview.menu as wm
