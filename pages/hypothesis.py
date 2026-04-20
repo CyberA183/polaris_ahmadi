@@ -27,7 +27,15 @@ def go_back_stage():
         st.warning("No previous stage to go back to.")
 
 st.set_page_config(layout="centered")
-st.title("🧠 AI Hypothesis Agent")
+
+col_title, col_new = st.columns([5, 1])
+with col_title:
+    st.title("🧠 AI Hypothesis Agent")
+with col_new:
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🗑️ New", help="Clear conversation and start fresh", use_container_width=True):
+        clear_conversation()
+        st.rerun()
 
 # Add custom CSS for better visual distinction between chat sections
 st.markdown("""

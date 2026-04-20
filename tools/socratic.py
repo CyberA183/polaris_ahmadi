@@ -1,6 +1,22 @@
 import os
+import sys
 import logging
 import re
+
+# Fix Windows console encoding for Unicode characters (e.g., superscripts like ⁺)
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass  # Older Python or non-standard streams
+    # Also configure logging to handle Unicode
+    for handler in logging.root.handlers[:]:
+        if hasattr(handler, 'stream') and handler.stream in (sys.stdout, sys.stderr):
+            try:
+                handler.stream.reconfigure(encoding='utf-8', errors='replace')
+            except Exception:
+                pass
 
 # Lazy import heavy dependencies - only load when actually needed
 _genai = None
@@ -51,18 +67,26 @@ def _lazy_import_edison():
 
 def _lazy_import_instructions():
     """Lazy import of instruction constants"""
-    from tools.instruct import (CLARIFY_QUESTION_INSTRUCTIONS, SOCRATIC_PASS_INSTRUCTIONS, SOCRATIC_ANSWER_INSTRUCTIONS,
-                                TOT_INSTRUCTIONS, RETRY_THINKING_INSTRUCTIONS, HYPOTHESIS_SYNTHESIS,
-                                HYPOTHESIS_ANALYSIS_REPORT,
-                                EXPERIMENTAL_PLAN_TOT_INSTRUCTIONS)
-def _lazy_import_instructions():
-    """Lazy import of instruction constants"""
-    from tools.instruct import (CLARIFY_QUESTION_INSTRUCTIONS, SOCRATIC_PASS_INSTRUCTIONS, SOCRATIC_ANSWER_INSTRUCTIONS,
-                               TOT_INSTRUCTIONS, RETRY_THINKING_INSTRUCTIONS, HYPOTHESIS_SYNTHESIS, HYPOTHESIS_ANALYSIS_REPORT,
-                               EXPERIMENTAL_PLAN_TOT_INSTRUCTIONS)
-    return (CLARIFY_QUESTION_INSTRUCTIONS, SOCRATIC_PASS_INSTRUCTIONS, SOCRATIC_ANSWER_INSTRUCTIONS, TOT_INSTRUCTIONS,
-            RETRY_THINKING_INSTRUCTIONS, HYPOTHESIS_SYNTHESIS, HYPOTHESIS_ANALYSIS_REPORT,
-            EXPERIMENTAL_PLAN_TOT_INSTRUCTIONS)
+    from tools.instruct import (
+        CLARIFY_QUESTION_INSTRUCTIONS,      # 0
+        SOCRATIC_PASS_INSTRUCTIONS,         # 1
+        SOCRATIC_ANSWER_INSTRUCTIONS,       # 2
+        TOT_INSTRUCTIONS,                   # 3
+        RETRY_THINKING_INSTRUCTIONS,        # 4
+        HYPOTHESIS_SYNTHESIS,               # 5
+        HYPOTHESIS_ANALYSIS_REPORT,         # 6
+        EXPERIMENTAL_PLAN_TOT_INSTRUCTIONS, # 7
+    )
+    return (
+        CLARIFY_QUESTION_INSTRUCTIONS,      # 0
+        SOCRATIC_PASS_INSTRUCTIONS,         # 1
+        SOCRATIC_ANSWER_INSTRUCTIONS,       # 2
+        TOT_INSTRUCTIONS,                   # 3
+        RETRY_THINKING_INSTRUCTIONS,        # 4
+        HYPOTHESIS_SYNTHESIS,               # 5
+        HYPOTHESIS_ANALYSIS_REPORT,         # 6
+        EXPERIMENTAL_PLAN_TOT_INSTRUCTIONS, # 7
+    )
 
 
 def _lazy_import_given_vars():
@@ -77,12 +101,12 @@ def _lazy_import_given_vars():
 def generate_text_with_llm(prompt: str) -> str:
     """Generate text using configured LLM (Gemini or Qwen 2.5)."""
     try:
-        # Load .env if available
+        # Load .env if available — override=True so .env always wins over stale inherited env vars
         try:
             from dotenv import load_dotenv
             from pathlib import Path
             env_path = Path(__file__).parent.parent / '.env'
-            load_dotenv(env_path)
+            load_dotenv(env_path, override=True)
         except (ImportError, Exception):
             pass
 
@@ -371,7 +395,7 @@ def tot_generation_experimental_plan(socratic_pass_questioning: str, clarified_q
     try:
         # Lazy import instructions
         instructions = _lazy_import_instructions()
-        EXPERIMENTAL_PLAN_TOT_INSTRUCTIONS = instructions[6]
+        EXPERIMENTAL_PLAN_TOT_INSTRUCTIONS = instructions[7]
 
         tot_generation_prompt = f"""
         {EXPERIMENTAL_PLAN_TOT_INSTRUCTIONS}
@@ -619,8 +643,14 @@ def tot_generation(socratic_pass_questioning: str, clarified_question: str, socr
         return final_thoughts[:3]  # Return exactly 3 thoughts
 
     except Exception as e:
-        logging.error(f"TOT generation failed: {e}")
-        return ["Error generating thoughts", "Please check API key and try again", ""]
+        import traceback
+        error_details = traceback.format_exc()
+        # Use ASCII-safe logging to avoid UnicodeEncodeError on Windows console
+        safe_error = str(e).encode('ascii', 'replace').decode('ascii')
+        safe_details = error_details.encode('ascii', 'replace').decode('ascii')
+        logging.error(f"TOT generation failed: {safe_error}")
+        logging.error(f"Full traceback:\n{safe_details}")
+        return [f"Error generating thoughts: {type(e).__name__}", "See console for details", ""]
 
 
 def retry_thinking_deepen_thoughts(line_of_thought: str, previous_thought_1: str, previous_thought_2: str,
@@ -629,7 +659,7 @@ def retry_thinking_deepen_thoughts(line_of_thought: str, previous_thought_1: str
     try:
         # Lazy import instructions
         instructions = _lazy_import_instructions()
-        RETRY_THINKING_INSTRUCTIONS = instructions[3]
+        RETRY_THINKING_INSTRUCTIONS = instructions[4]
 
         # Build context section if available
         context_section = ""
@@ -1023,7 +1053,7 @@ def hypothesis_synthesis(socratic_question: str, next_step_option: str, previous
     try:
         # Lazy import instructions
         instructions = _lazy_import_instructions()
-        HYPOTHESIS_SYNTHESIS = instructions[4]
+        HYPOTHESIS_SYNTHESIS = instructions[5]
 
         hypothesis_synthesis_prompt = f"""
             {HYPOTHESIS_SYNTHESIS}
@@ -1051,7 +1081,7 @@ def local_hypothesis_analysis_fallback(hypothesis: str, socratic_question: str) 
     try:
         # Lazy import instructions
         instructions = _lazy_import_instructions()
-        HYPOTHESIS_ANALYSIS_REPORT = instructions[5]
+        HYPOTHESIS_ANALYSIS_REPORT = instructions[6]
 
         hypothesis_analysis_report_prompt = f"""
         {HYPOTHESIS_ANALYSIS_REPORT}

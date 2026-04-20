@@ -1,7 +1,7 @@
 # Streamlit Startup Script for POLARIS Hypothesis Agent (Optimized)
-# Set API keys as environment variables
-$env:GOOGLE_API_KEY = "AIzaSyBUbA3gsCF1DZxnsEJ9lIwq9i7MYB_Ol20"
-$env:GEMINI_API_KEY = "AIzaSyBUbA3gsCF1DZxnsEJ9lIwq9i7MYB_Ol20"
+# API keys are loaded from .env file or can be set in environment before running
+# Example: $env:GEMINI_API_KEY = "your-key-here"
+# Or create a .env file in the project root with: GEMINI_API_KEY=your-key-here
 
 # Change to script directory (polaris_ahmadi)
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
