@@ -82,16 +82,18 @@ requires = [
   "fastapi",
   "uvicorn",
   "altair==4.2.2",
-  "pywebview>=4.0",
   "pillow",
 ]
 
 [tool.briefcase.app.polaris_desktop.macOS]
+min_os_version = "14.0"
+universal_build = false
 requires = []
 
 [tool.briefcase.app.polaris_desktop.windows]
 requires = [
   "pythonnet",
+  "pywebview>=4.0",
 ]
 
 [tool.briefcase.app.polaris_mobile]

@@ -56,8 +56,10 @@ jobs:
 
       - name: Install Briefcase
         run: |
+          python -m venv .briefcase-venv
+          . .briefcase-venv/bin/activate
           python -m pip install --upgrade pip
-          python -m pip install briefcase
+          python -m pip install "briefcase==0.4.1" "rich<15"
 
       - name: Debug dependency scope
         run: |
@@ -69,13 +71,15 @@ jobs:
           pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
           project_deps = pyproject.get("project", {}).get("dependencies", [])
           apps = pyproject.get("tool", {}).get("briefcase", {}).get("app", {})
-          app_requires = apps.get("${{ matrix.app_name }}", {}).get("requires", [])
+          app_cfg = apps.get("${{ matrix.app_name }}", {})
+          app_requires = app_cfg.get("requires", [])
+          mac_cfg = app_cfg.get("macOS", {})
           payload = {
               "sessionId": "dd0640",
               "runId": "pre-fix",
-              "hypothesisId": "H1",
+              "hypothesisId": "H3",
               "location": "release.yml:debug-dependency-scope",
-              "message": "Collected Briefcase dependency scope for matrix target",
+              "message": "Collected Briefcase dependency and macOS target scope",
               "data": {
                   "target": "${{ matrix.target }}",
                   "app_name": "${{ matrix.app_name }}",
@@ -83,6 +87,11 @@ jobs:
                   "project_dependencies_sample": project_deps[:5],
                   "app_requires_count": len(app_requires),
                   "app_requires_sample": app_requires[:5],
+                  "contains_scipy_requirement": any("scipy" in req.lower() for req in app_requires),
+                  "contains_pywebview_requirement": any("pywebview" in req.lower() for req in app_requires),
+                  "macos_min_os_version": mac_cfg.get("min_os_version"),
+                  "macos_universal_build": mac_cfg.get("universal_build"),
+                  "contains_torch_requirement": any("torch" in req.lower() for req in app_requires),
               },
               "timestamp": int(time.time() * 1000),
           }
@@ -113,7 +122,64 @@ jobs:
 
       - name: Build with Briefcase
         run: |
+          . .briefcase-venv/bin/activate
           briefcase create ${{ matrix.target }} -a ${{ matrix.app_name }} --no-input -v
+
+      - name: Verify macOS app contents after create
+        if: matrix.target == 'macOS'
+        run: |
+          . .briefcase-venv/bin/activate
+          python - <<'PY'
+          import json
+          import time
+          from pathlib import Path
+
+          app_root = Path("build/polaris_desktop/macos/app")
+          app_candidates = list(app_root.glob("*.app"))
+          resources_dir = None
+          if app_candidates:
+              resources_dir = app_candidates[0] / "Contents" / "Resources"
+          app_packages_dir = resources_dir / "app_packages" if resources_dir else None
+
+          payload = {
+              "sessionId": "dd0640",
+              "runId": "post-fix",
+              "hypothesisId": "H5",
+              "location": "release.yml:verify-macos-content",
+              "message": "Verified macOS app contents after Briefcase cleanup step",
+              "data": {
+                  "app_bundle_found": bool(app_candidates),
+                  "app_bundle_path": str(app_candidates[0]) if app_candidates else None,
+                  "resources_dir_exists": bool(resources_dir and resources_dir.exists()),
+                  "app_packages_exists": bool(app_packages_dir and app_packages_dir.exists()),
+                  "app_packages_file_count": (
+                      sum(1 for _ in app_packages_dir.rglob("*")) if app_packages_dir and app_packages_dir.exists() else 0
+                  ),
+                  "streamlit_present": bool(
+                      app_packages_dir and (app_packages_dir / "streamlit").exists()
+                  ),
+                  "pandas_present": bool(
+                      app_packages_dir and (app_packages_dir / "pandas").exists()
+                  ),
+              },
+              "timestamp": int(time.time() * 1000),
+          }
+          # region agent log
+          log_path = Path("/Users/arielthompson/Documents/IAMM_Research/polaris_ahmadi/.cursor/debug-dd0640.log")
+          try:
+              log_path.parent.mkdir(parents=True, exist_ok=True)
+              with log_path.open("a", encoding="utf-8") as f:
+                  f.write(json.dumps(payload) + "\n")
+          except Exception as exc:
+              payload["message"] = "Skipping local debug file write in hosted runner"
+              payload["data"]["debug_file_error"] = str(exc)
+          # endregion
+          print(json.dumps(payload, indent=2))
+          PY
+
+      - name: Continue Briefcase build/package
+        run: |
+          . .briefcase-venv/bin/activate
           briefcase build ${{ matrix.target }} -a ${{ matrix.app_name }} --no-input
           briefcase package ${{ matrix.target }} -a ${{ matrix.app_name }} --no-input
 

@@ -30,8 +30,14 @@ import urllib.request
 if sys.platform == "win32":
     os.environ.setdefault("PYTHONNET_RUNTIME", "coreclr")
 
-import webview
-import webview.menu as wm
+WEBVIEW_IMPORT_ERROR: str | None = None
+try:
+    import webview
+    import webview.menu as wm
+except Exception as exc:  # pragma: no cover - runtime environment dependent
+    webview = None
+    wm = None
+    WEBVIEW_IMPORT_ERROR = str(exc)
 
 from tools.paths import (
     get_current_install_target_path,
@@ -385,6 +391,47 @@ def main():
         "--browser.gatherUsageStats",
         "false",
     ]
+
+    def run_browser_fallback(reason: str) -> None:
+        # region agent log
+        _debug_log(
+            "H4",
+            "run_app.py:browser-fallback",
+            "Using browser fallback path",
+            {"reason": reason, "url": url, "has_proc": proc_holder["proc"] is not None},
+        )
+        # endregion
+        log_message(f"Browser fallback reason: {reason}")
+        try:
+            import webbrowser
+
+            existing_proc = proc_holder.get("proc")
+            if existing_proc is None or existing_proc.poll() is not None:
+                env = os.environ.copy()
+                env["STREAMLIT_GLOBAL_DEVELOPMENT_MODE"] = "false"
+                env["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
+                env["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
+                log_handle = open(log_path, "a", encoding="utf-8")
+                fallback_proc = subprocess.Popen(
+                    cmd, stdout=log_handle, stderr=subprocess.STDOUT, env=env
+                )
+                log_handle.close()
+                proc_holder["proc"] = fallback_proc
+                atexit.register(kill_server, fallback_proc)
+
+            if wait_for_server(url, proc=proc_holder["proc"]):
+                log_message(f"Streamlit ready — opening {url} in default browser")
+                webbrowser.open(url)
+                proc_holder["proc"].wait()
+            else:
+                log_message("Browser fallback: Streamlit server did not become ready.")
+        except Exception as fallback_exc:
+            log_message(f"Browser fallback also failed: {fallback_exc}")
+
+    if webview is None or wm is None:
+        run_browser_fallback(f"pywebview unavailable: {WEBVIEW_IMPORT_ERROR or 'unknown import error'}")
+        kill_server(proc_holder["proc"])
+        return
 
     window = webview.create_window(APP_TITLE, html=LOADING_HTML)
 
@@ -747,31 +794,7 @@ def main():
             f"Native window unavailable ({type(exc).__name__}: {exc}). "
             "Falling back to browser mode."
         )
-        try:
-            import webbrowser
-
-            existing_proc = proc_holder.get("proc")
-            if existing_proc is None or existing_proc.poll() is not None:
-                env = os.environ.copy()
-                env["STREAMLIT_GLOBAL_DEVELOPMENT_MODE"] = "false"
-                env["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
-                env["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
-                log_handle = open(log_path, "a", encoding="utf-8")
-                fallback_proc = subprocess.Popen(
-                    cmd, stdout=log_handle, stderr=subprocess.STDOUT, env=env
-                )
-                log_handle.close()
-                proc_holder["proc"] = fallback_proc
-                atexit.register(kill_server, fallback_proc)
-
-            if wait_for_server(url, proc=proc_holder["proc"]):
-                log_message(f"Streamlit ready — opening {url} in default browser")
-                webbrowser.open(url)
-                proc_holder["proc"].wait()
-            else:
-                log_message("Browser fallback: Streamlit server did not become ready.")
-        except Exception as fallback_exc:
-            log_message(f"Browser fallback also failed: {fallback_exc}")
+        run_browser_fallback(f"native window unavailable: {type(exc).__name__}: {exc}")
 
     kill_server(proc_holder["proc"])
 
