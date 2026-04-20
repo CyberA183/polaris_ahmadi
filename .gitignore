@@ -50,3 +50,7 @@ build/
 dist/
 *.exe
 *.app
+
+# Release archives (built by CI; do not commit locally)
+Polaris-win.zip
+Polaris.app.zip

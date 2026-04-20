@@ -1,0 +1,10 @@
+{
+  "version": "0.1.0",
+  "notes": "Initial release",
+  "macos": {
+    "url": "https://github.com/CyberA183/polaris_ahmadi/releases/download/v0.1.0/Polaris.app.zip"
+  },
+  "windows": {
+    "url": "https://github.com/CyberA183/polaris_ahmadi/releases/download/v0.1.0/Polaris-win.zip"
+  }
+}

@@ -1,0 +1,158 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # Windows build → Polaris-win.zip
+  # ─────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller>=6.0.0
+
+      - name: Build with PyInstaller
+        run: pyinstaller polaris.spec --noconfirm
+
+      # dist\Polaris\ contains Polaris.exe + support files
+      - name: Create Polaris-win.zip
+        run: |
+          Compress-Archive -Path "dist\Polaris" -DestinationPath "Polaris-win.zip"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Polaris-win
+          path: Polaris-win.zip
+
+  # ─────────────────────────────────────────────────────────────
+  # macOS build → Polaris.app.zip
+  # ─────────────────────────────────────────────────────────────
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller>=6.0.0
+
+      - name: Build with PyInstaller
+        run: pyinstaller polaris.spec --noconfirm
+
+      # dist/Polaris.app is the .app bundle produced on macOS
+      - name: Create Polaris.app.zip
+        run: ditto -c -k --sequesterRsrc --keepParent dist/Polaris.app Polaris.app.zip
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Polaris-macos
+          path: Polaris.app.zip
+
+  # ─────────────────────────────────────────────────────────────
+  # Publish GitHub Release with all assets + version.json
+  # ─────────────────────────────────────────────────────────────
+  release:
+    name: Publish Release
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Polaris-win
+          path: release-assets
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Polaris-macos
+          path: release-assets
+
+      # Strip the leading "v" from the tag to get a bare semver (e.g. v1.0.1 → 1.0.1)
+      - name: Derive version string
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate version.json
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cat > release-assets/version.json <<EOF
+          {
+            "version": "$VERSION",
+            "notes": "See the release page for full changelog.",
+            "macos": {
+              "url": "https://github.com/$REPO/releases/download/$TAG/Polaris.app.zip"
+            },
+            "windows": {
+              "url": "https://github.com/$REPO/releases/download/$TAG/Polaris-win.zip"
+            }
+          }
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Polaris ${{ steps.version.outputs.version }}"
+          body: |
+            ## What's new in ${{ steps.version.outputs.version }}
+
+            See commit history for details.
+
+            ### Installation
+            | Platform | Download |
+            |----------|----------|
+            | Windows  | `Polaris-win.zip` → extract and run `Polaris\Polaris.exe` |
+            | macOS    | `Polaris.app.zip` → extract and open `Polaris.app` |
+
+            ### Auto-update
+            The desktop app checks for updates automatically.
+            Use **Help → Check for Updates** to check manually,
+            then **Help → Download Latest Update** to stage the new version.
+          files: |
+            release-assets/Polaris-win.zip
+            release-assets/Polaris.app.zip
+            release-assets/version.json
+          draft: false
+          prerelease: false
