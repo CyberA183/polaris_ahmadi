@@ -59,6 +59,42 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install briefcase
 
+      - name: Debug dependency scope
+        run: |
+          python - <<'PY'
+          import json
+          import time
+          import tomllib
+          from pathlib import Path
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+          project_deps = pyproject.get("project", {}).get("dependencies", [])
+          apps = pyproject.get("tool", {}).get("briefcase", {}).get("app", {})
+          app_requires = apps.get("${{ matrix.app_name }}", {}).get("requires", [])
+          payload = {
+              "sessionId": "dd0640",
+              "runId": "pre-fix",
+              "hypothesisId": "H1",
+              "location": "release.yml:debug-dependency-scope",
+              "message": "Collected Briefcase dependency scope for matrix target",
+              "data": {
+                  "target": "${{ matrix.target }}",
+                  "app_name": "${{ matrix.app_name }}",
+                  "project_dependencies_count": len(project_deps),
+                  "project_dependencies_sample": project_deps[:5],
+                  "app_requires_count": len(app_requires),
+                  "app_requires_sample": app_requires[:5],
+              },
+              "timestamp": int(time.time() * 1000),
+          }
+          # region agent log
+          log_path = Path("/Users/arielthompson/Documents/IAMM_Research/polaris_ahmadi/.cursor/debug-dd0640.log")
+          log_path.parent.mkdir(parents=True, exist_ok=True)
+          with log_path.open("a", encoding="utf-8") as f:
+              f.write(json.dumps(payload) + "\n")
+          # endregion
+          print(json.dumps(payload["data"], indent=2))
+          PY
+
       - name: Set up Java for Android builds
         if: matrix.target == 'android'
         uses: actions/setup-java@v4
@@ -72,7 +108,7 @@ jobs:
 
       - name: Build with Briefcase
         run: |
-          briefcase create ${{ matrix.target }} -a ${{ matrix.app_name }} --no-input
+          briefcase create ${{ matrix.target }} -a ${{ matrix.app_name }} --no-input -v
           briefcase build ${{ matrix.target }} -a ${{ matrix.app_name }} --no-input
           briefcase package ${{ matrix.target }} -a ${{ matrix.app_name }} --no-input
 
@@ -94,6 +130,14 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.asset_name }}
+
+      - name: Upload Briefcase logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: briefcase-logs-${{ matrix.label }}
+          path: logs/briefcase*.log
+          if-no-files-found: ignore
 
   release:
     name: Publish Release

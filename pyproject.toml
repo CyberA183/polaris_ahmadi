@@ -13,32 +13,8 @@ authors = [
   { name = "Polaris Team" }
 ]
 dependencies = [
-  "numpy",
-  "pandas",
-  "openpyxl",
-  "matplotlib",
-  "transformers",
-  "scipy",
-  "torch",
-  "lmfit",
-  "google-generativeai",
-  "openai>=1.0.0",
-  "python-dotenv",
-  "scikit-learn",
-  "streamlit>=1.36.0",
-  "futurehouse-client",
-  "edison-client",
-  "requests",
-  "watchdog",
-  "reportlab",
-  "psutil",
-  "plotly",
-  "kaleido",
-  "fastapi",
-  "uvicorn",
-  "altair==4.2.2",
-  "pywebview>=4.0",
-  "pillow",
+  # Intentionally empty at project level.
+  # Platform-specific dependencies are configured in Briefcase app sections.
 ]
 
 [project.optional-dependencies]
