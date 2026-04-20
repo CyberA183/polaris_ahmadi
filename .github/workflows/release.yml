@@ -88,11 +88,16 @@ jobs:
           }
           # region agent log
           log_path = Path("/Users/arielthompson/Documents/IAMM_Research/polaris_ahmadi/.cursor/debug-dd0640.log")
-          log_path.parent.mkdir(parents=True, exist_ok=True)
-          with log_path.open("a", encoding="utf-8") as f:
-              f.write(json.dumps(payload) + "\n")
+          try:
+              log_path.parent.mkdir(parents=True, exist_ok=True)
+              with log_path.open("a", encoding="utf-8") as f:
+                  f.write(json.dumps(payload) + "\n")
+          except Exception as exc:
+              payload["hypothesisId"] = "H2"
+              payload["message"] = "Skipping local debug file write in hosted runner"
+              payload["data"]["debug_file_error"] = str(exc)
           # endregion
-          print(json.dumps(payload["data"], indent=2))
+          print(json.dumps(payload, indent=2))
           PY
 
       - name: Set up Java for Android builds
