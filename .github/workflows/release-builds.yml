@@ -51,6 +51,45 @@ jobs:
       - name: Install build tools
         run: |
           python -m venv .briefcase-venv
+          python - <<'PY'
+          import json
+          import os
+          import time
+          from pathlib import Path
+
+          payload = {
+              "sessionId": "657330",
+              "runId": "pre-fix",
+              "hypothesisId": "H1-H5",
+              "location": "release-builds.yml:install-build-tools-pre-activate",
+              "message": "Collected runner shell and venv activation path state",
+              "data": {
+                  "runner_os": os.environ.get("RUNNER_OS"),
+                  "matrix_target": "${{ matrix.target }}",
+                  "matrix_label": "${{ matrix.label }}",
+                  "github_workspace": os.environ.get("GITHUB_WORKSPACE"),
+                  "shell_env": os.environ.get("SHELL"),
+                  "comspec_env": os.environ.get("ComSpec"),
+                  "pwsh_version_table_present": bool(os.environ.get("PSModulePath")),
+                  "venv_bin_activate_exists": Path(".briefcase-venv/bin/activate").exists(),
+                  "venv_scripts_activate_exists": Path(".briefcase-venv/Scripts/Activate.ps1").exists(),
+                  "venv_scripts_python_exists": Path(".briefcase-venv/Scripts/python.exe").exists(),
+                  "venv_bin_python_exists": Path(".briefcase-venv/bin/python").exists(),
+              },
+              "timestamp": int(time.time() * 1000),
+          }
+          # region agent log
+          log_path = Path("/Users/arielthompson/Documents/IAMM_Research/polaris_ahmadi/.cursor/debug-657330.log")
+          try:
+              log_path.parent.mkdir(parents=True, exist_ok=True)
+              with log_path.open("a", encoding="utf-8") as f:
+                  f.write(json.dumps(payload) + "\n")
+          except Exception as exc:
+              payload["message"] = "Skipping local debug file write in hosted runner"
+              payload["data"]["debug_file_error"] = str(exc)
+          # endregion
+          print(json.dumps(payload, indent=2))
+          PY
           . .briefcase-venv/bin/activate
           python -m pip install --upgrade pip
           python -m pip install "briefcase==0.4.1" "rich<15"

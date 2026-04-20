@@ -153,7 +153,7 @@ class CurveFittingAgent(BaseAgent):
         if delay is None:
             try:
                 import streamlit as st
-                delay = self.memory.get_var("gemini_delay_seconds", 0.5)
+                delay = self.memory.get_var("llm_delay_seconds", 0.5)
             except (ImportError, RuntimeError, AttributeError):
                 delay = 0.5  # Default in headless mode
         
@@ -167,16 +167,25 @@ class CurveFittingAgent(BaseAgent):
         
         # Fallback to environment variables if not in session state
         if not api_key:
-            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            api_key = (
+                os.getenv("HUGGINGFACE_API_KEY")
+                or os.getenv("HF_API_KEY")
+                or os.getenv("LLM_API_KEY")
+                or os.getenv("DASHSCOPE_API_KEY")
+            )
         
         if not api_key:
-            raise ValueError("API key not found. Set GEMINI_API_KEY environment variable or configure in Settings.")
+            raise ValueError("API key not found. Set HUGGINGFACE_API_KEY (or HF_API_KEY) or configure in Settings.")
         
         # Check if we need to recreate the client (if delay changed or client doesn't exist)
         if self.llm_client is None or (hasattr(self.llm_client, 'min_delay') and self.llm_client.min_delay != delay):
+            provider = "qwen"
+            model_id = os.getenv("LLM_MODEL")
+            if not model_id:
+                model_id = "Qwen/Qwen2.5-VL-72B-Instruct"
             self.llm_client = LLMClient(
-                provider="gemini",
-                model_id="gemini-2.0-flash-lite",  # Use available model that supports both text and image
+                provider=provider,
+                model_id=model_id,
                 api_key=api_key,
                 min_delay_seconds=delay
             )

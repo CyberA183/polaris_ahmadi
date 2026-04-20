@@ -11,6 +11,13 @@ This project uses Briefcase for packaging:
 - `pip install -r requirements.txt`
 - `pip install briefcase`
 
+Runtime LLM configuration (default provider is Qwen):
+
+- `LLM_PROVIDER=qwen`
+- `HUGGINGFACE_API_KEY=<your_hf_token>`
+- `LLM_MODEL=Qwen/Qwen2.5-VL-72B-Instruct` (vision-capable; used by curve fitting image analysis)
+- `QWEN_BASE_URL=https://router.huggingface.co/v1`
+
 Optional local helper scripts:
 
 - Bash: `scripts/briefcase_build.sh`
@@ -121,4 +128,47 @@ PowerShell:
 .\scripts\briefcase_build.ps1 -Target windows -App polaris_desktop -Step create
 .\scripts\briefcase_build.ps1 -Target windows -App polaris_desktop -Step build
 .\scripts\briefcase_build.ps1 -Target windows -App polaris_desktop -Step package
+```
+
+## 7) MCP orchestrator local run
+
+Prerequisites:
+
+- Literature MCP server running (default: `http://127.0.0.1:8000/mcp`)
+- FastAPI dependencies installed from project requirements
+
+Start orchestrator:
+
+```bash
+python watcher/orchestrator_mcp.py
+```
+
+Optional environment overrides:
+
+```bash
+export LITERATURE_MCP_ENDPOINT="http://127.0.0.1:8000/mcp"
+export MCP_ORCH_HOST="127.0.0.1"
+export MCP_ORCH_PORT="8010"
+```
+
+Smoke test (bash):
+
+```bash
+./scripts/mcp_orchestrator_smoke.sh
+```
+
+Smoke test (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\mcp_orchestrator_smoke.ps1
+```
+
+Process-tool smoke test (list/get_saved/process_batch):
+
+```bash
+./scripts/mcp_orchestrator_process_smoke.sh
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\mcp_orchestrator_process_smoke.ps1
 ```

@@ -68,31 +68,47 @@ class MemoryManager:
         if not STREAMLIT_AVAILABLE:
             return
 
+        provider = (self._db.get("llm_provider") or os.getenv("LLM_PROVIDER") or "qwen").strip().lower()
         api_key_source = self._db.get("api_key_source", "")
         if api_key_source != "user":
-            env_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+            env_key = (
+                os.getenv("HUGGINGFACE_API_KEY")
+                or os.getenv("HF_API_KEY")
+                or os.getenv("LLM_API_KEY")
+                or os.getenv("DASHSCOPE_API_KEY")
+            )
 
             if env_key:
                 self._db.set("api_key", env_key)
                 self._db.set("api_key_source", "environment")
-                os.environ["GOOGLE_API_KEY"] = env_key
-                os.environ["GEMINI_API_KEY"] = env_key
+                os.environ["LLM_API_KEY"] = env_key
+                os.environ["HUGGINGFACE_API_KEY"] = env_key
+                os.environ["HF_API_KEY"] = env_key
+                os.environ["DASHSCOPE_API_KEY"] = env_key
 
             elif not self._db.get("api_key"):
                 try:
-                    api_key = st.secrets.get("GEMINI_API_KEY")
+                    api_key = (
+                        st.secrets.get("HUGGINGFACE_API_KEY")
+                        or st.secrets.get("HF_API_KEY")
+                        or st.secrets.get("DASHSCOPE_API_KEY")
+                    )
                     if api_key:
                         self._db.set("api_key", api_key)
                         self._db.set("api_key_source", "secrets")
-                        os.environ["GEMINI_API_KEY"] = api_key
-                        os.environ["GOOGLE_API_KEY"] = api_key
+                        os.environ["LLM_API_KEY"] = api_key
+                        os.environ["HUGGINGFACE_API_KEY"] = api_key
+                        os.environ["HF_API_KEY"] = api_key
+                        os.environ["DASHSCOPE_API_KEY"] = api_key
                 except (AttributeError, RuntimeError):
                     pass
         else:
             api_key = self._db.get("api_key")
             if api_key:
-                os.environ["GOOGLE_API_KEY"] = api_key
-                os.environ["GEMINI_API_KEY"] = api_key
+                os.environ["LLM_API_KEY"] = api_key
+                os.environ["HUGGINGFACE_API_KEY"] = api_key
+                os.environ["HF_API_KEY"] = api_key
+                os.environ["DASHSCOPE_API_KEY"] = api_key
 
         if STREAMLIT_AVAILABLE and st is not None:
             try:
@@ -101,7 +117,7 @@ class MemoryManager:
                 pass
 
         # Sync LLM provider config from db (for socratic/llm_client)
-        provider = self._db.get("llm_provider") or "gemini"
+        provider = self._db.get("llm_provider") or "qwen"
         os.environ["LLM_PROVIDER"] = provider
         model = self._db.get("llm_model")
         if model:
@@ -112,11 +128,9 @@ class MemoryManager:
         api_key = self._db.get("api_key")
         if api_key:
             os.environ["LLM_API_KEY"] = api_key
-            if provider == "gemini":
-                os.environ["GOOGLE_API_KEY"] = api_key
-                os.environ["GEMINI_API_KEY"] = api_key
-            else:
-                os.environ["DASHSCOPE_API_KEY"] = api_key
+            os.environ["HUGGINGFACE_API_KEY"] = api_key
+            os.environ["HF_API_KEY"] = api_key
+            os.environ["DASHSCOPE_API_KEY"] = api_key
 
     def log_event(self, event_type: str, payload: dict, mode: str):
         """Unified event log to database (or logger if DB unavailable)."""
@@ -229,6 +243,25 @@ class MemoryManager:
         self._db.add_negative_hypothesis(
             hypothesis_text, status, research_question, analysis_summary, context_json
         )
+
+    def add_hypothesis_outcome(
+        self,
+        hypothesis_text: str,
+        status: str,
+        material_hint: str = "",
+        evidence_summary: str = "",
+        source: str = "orchestrator",
+    ):
+        self._db.add_hypothesis_outcome(
+            hypothesis_text=hypothesis_text,
+            status=status,
+            material_hint=material_hint,
+            evidence_summary=evidence_summary,
+            source=source,
+        )
+
+    def get_hypothesis_outcomes(self, limit=200):
+        return self._db.get_hypothesis_outcomes(limit=limit)
 
     def get_negative_hypotheses(self, limit=None):
         """Retrieve negative hypotheses for model context/learning. Use limit=None for all."""

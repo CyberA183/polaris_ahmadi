@@ -24,55 +24,56 @@ with general:
     st.markdown("##### LLM Provider")
     llm_provider = st.selectbox(
         "Model provider:",
-        ["gemini", "qwen"],
-        format_func=lambda x: "Google Gemini" if x == "gemini" else "Qwen 2.5 (Alibaba DashScope)",
-        index=0 if (memory.get_var("llm_provider") or "gemini") == "gemini" else 1,
+        ["qwen"],
+        format_func=lambda x: "Qwen (Hugging Face)",
+        index=0,
         key="llm_provider_select",
     )
     memory.set_var("llm_provider", llm_provider)
 
-    if llm_provider == "gemini":
-        llm_model = st.text_input(
-            "Gemini model ID:",
-            value=memory.get_var("llm_model") or "gemini-2.5-flash-lite",
-            help="e.g. gemini-2.5-flash-lite, gemini-2.0-flash-lite",
-            key="llm_model_gemini",
-        )
-    else:
-        llm_model = st.selectbox(
-            "Qwen model:",
-            ["qwen2.5-72b-instruct", "qwen2.5-32b-instruct", "qwen2.5-14b-instruct", "qwen2.5-7b-instruct", "qwen-plus", "qwen-turbo"],
-            index=0,
-            key="llm_model_qwen",
-        )
-        custom_model = st.text_input("Or custom model ID:", value="", key="qwen_custom_model", placeholder="e.g. qwen3-32b")
-        if custom_model.strip():
-            llm_model = custom_model.strip()
-        qwen_base_url = st.selectbox(
-            "DashScope region:",
-            [
-                "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-                "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
-            ],
-            format_func=lambda u: "Beijing" if "us" not in u and "intl" not in u else ("International" if "intl" in u else "US"),
-            key="qwen_base_url",
-        )
-        memory.set_var("qwen_base_url", qwen_base_url)
+    llm_model = st.selectbox(
+        "Qwen model:",
+        [
+            "Qwen/Qwen2.5-VL-72B-Instruct",
+            "Qwen/Qwen2.5-72B-Instruct",
+            "Qwen/Qwen2.5-32B-Instruct",
+            "Qwen/Qwen2.5-14B-Instruct",
+            "Qwen/Qwen2.5-7B-Instruct",
+        ],
+        index=0,
+        key="llm_model_qwen",
+    )
+    custom_model = st.text_input("Or custom model ID:", value="", key="qwen_custom_model", placeholder="e.g. qwen3-32b")
+    if custom_model.strip():
+        llm_model = custom_model.strip()
+    qwen_base_url = st.selectbox(
+        "Inference endpoint:",
+        [
+            "https://router.huggingface.co/v1",
+            "https://api-inference.huggingface.co/v1",
+        ],
+        format_func=lambda u: "HF Router (recommended)" if "router" in u else "HF Inference API",
+        key="qwen_base_url",
+    )
+    memory.set_var("qwen_base_url", qwen_base_url)
     memory.set_var("llm_model", llm_model)
 
     # API Key
     st.markdown("##### API Key Configuration")
-    key_label = "DashScope API Key (Qwen):" if llm_provider == "qwen" else "Google Gemini API Key:"
-    key_help = "Get key from https://dashscope.console.aliyun.com/" if llm_provider == "qwen" else "Get key from https://makersuite.google.com/app/apikey"
+    key_label = "Hugging Face API Key (Qwen):"
+    key_help = "Get key from https://huggingface.co/settings/tokens"
 
-    # Track editing mode
-    editing = memory.get_var("editing", False)
+    # Track editing mode with a dedicated key for this page.
+    # Keep backward compatibility with older persisted "editing" state.
+    if "settings_api_key_editing" not in st.session_state:
+        st.session_state["settings_api_key_editing"] = bool(memory.get_var("editing", False))
+    editing = bool(st.session_state.get("settings_api_key_editing", False))
 
     if memory.get_var("api_key") and not editing:
         st.success("Your API key was loaded successfully.")
 
         if st.button("Edit API Key"):
+            st.session_state["settings_api_key_editing"] = True
             memory.set_var("editing", True)
             if "api_key_input" in st.session_state:
                 del st.session_state.api_key_input
@@ -101,22 +102,20 @@ with general:
                     api_key = api_key_input.strip()
                     memory.set_var("api_key", api_key)
                     memory.set_var("api_key_source", "user")
+                    st.session_state["settings_api_key_editing"] = False
                     memory.set_var("editing", False)
                     os.environ["LLM_API_KEY"] = api_key
                     os.environ["LLM_PROVIDER"] = llm_provider
                     os.environ["LLM_MODEL"] = llm_model
-                    if llm_provider == "gemini":
-                        os.environ["GEMINI_API_KEY"] = api_key
-                        os.environ["GOOGLE_API_KEY"] = api_key
-                    else:
-                        os.environ["DASHSCOPE_API_KEY"] = api_key
-                        os.environ["QWEN_BASE_URL"] = memory.get_var("qwen_base_url") or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                    os.environ["HUGGINGFACE_API_KEY"] = api_key
+                    os.environ["HF_API_KEY"] = api_key
+                    os.environ["DASHSCOPE_API_KEY"] = api_key
+                    os.environ["QWEN_BASE_URL"] = memory.get_var("qwen_base_url") or "https://router.huggingface.co/v1"
                     try:
                         env_path = get_env_path()
                         with open(env_path, "w") as f:
                             f.write(f"LLM_API_KEY={api_key}\nLLM_PROVIDER={llm_provider}\nLLM_MODEL={llm_model}\n")
-                            if llm_provider == "qwen":
-                                f.write(f"QWEN_BASE_URL={memory.get_var('qwen_base_url') or 'https://dashscope.aliyuncs.com/compatible-mode/v1'}\n")
+                            f.write(f"QWEN_BASE_URL={memory.get_var('qwen_base_url') or 'https://router.huggingface.co/v1'}\n")
                     except Exception:
                         pass
                     st.success("Your API key and settings have been saved successfully!")
@@ -126,7 +125,18 @@ with general:
 
         with col2:
             if st.button("Cancel", use_container_width=True):
+                st.session_state["settings_api_key_editing"] = False
                 memory.set_var("editing", False)
+                st.rerun()
+
+        # Always show an explicit edit toggle in this branch too,
+        # so users coming from env/secrets mode can enter edit state.
+        if not editing:
+            if st.button("Edit API Key", key="edit_api_key_secondary"):
+                st.session_state["settings_api_key_editing"] = True
+                memory.set_var("editing", True)
+                if "api_key_input" in st.session_state:
+                    del st.session_state.api_key_input
                 st.rerun()
 
 with experiment:
@@ -172,6 +182,24 @@ with experiment:
         )
         jupyter_config["upload_enabled"] = jupyter_upload_enabled
         memory.set_var("jupyter_config", jupyter_config)
+
+        st.markdown("**MCP Literature Orchestrator Configuration**")
+        mcp_cfg = memory.get_var("mcp_literature_config", {}) or {}
+        mcp_endpoint = st.text_input(
+            "MCP Literature Endpoint:",
+            value=mcp_cfg.get("endpoint", "http://127.0.0.1:8000/mcp"),
+            help="HTTP MCP endpoint for literature tools",
+            key="mcp_literature_endpoint_input",
+        )
+        mcp_manual_manifest = st.text_input(
+            "Manual Paper Manifest Path:",
+            value=mcp_cfg.get("manual_manifest_path", "data/manual_papers_manifest.json"),
+            help="Path to Google Drive-synced metadata JSON",
+            key="mcp_manual_manifest_input",
+        )
+        mcp_cfg["endpoint"] = mcp_endpoint
+        mcp_cfg["manual_manifest_path"] = mcp_manual_manifest
+        memory.set_var("mcp_literature_config", mcp_cfg)
 
     with col_exp2:
         st.markdown("**Experiment Memory**")

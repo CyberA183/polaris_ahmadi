@@ -3,6 +3,7 @@ import json
 import os
 import streamlit as st
 from agents.base import BaseAgent
+from tools.mcp_orchestrator_bridge import sync_hypothesis_outcome
 from tools.memory import MemoryManager
 from tools import socratic
 from tools.experiment_memory import get_experiment_memory
@@ -681,19 +682,42 @@ class AnalysisAgent(BaseAgent):
                             memory.set_var("gp_suggested_compositions", suggested_compositions)
                             memory.set_var("analysis_full_report", analysis_result["analysis"])
                             st.switch_page("pages/experiment.py")
+
+                    # Persist standardized hypothesis outcome for orchestrator gating.
+                    hypothesis_text = (
+                        self.memory.view_component("hypothesis")
+                        or self.memory.get_var("last_hypothesis")
+                        or ""
+                    )
+                    if isinstance(hypothesis_text, str):
+                        hypothesis_text = hypothesis_text[:4000]
+                    else:
+                        hypothesis_text = str(hypothesis_text)[:4000]
+
+                    mapped_status = parsed["hypothesis_status"]
+                    if mapped_status == "confirmed":
+                        mapped_status = "positive"
+                    elif mapped_status in {"needs_more_data", "unknown"}:
+                        mapped_status = "needs_revision"
+
+                    self.memory.add_hypothesis_outcome(
+                        hypothesis_text=hypothesis_text,
+                        status=mapped_status,
+                        evidence_summary=analysis_result["analysis"][:2000],
+                        source="analysis_agent",
+                    )
+                    # Keep orchestrator service in sync when running.
+                    sync_hypothesis_outcome(
+                        self.memory,
+                        hypothesis_text=hypothesis_text,
+                        status=mapped_status,
+                        evidence_summary=analysis_result["analysis"][:2000],
+                        source="analysis_agent",
+                    )
                     
                     # Decision point: Hypothesis needs revision?
                     if parsed["hypothesis_status"] in ["needs_revision", "rejected"]:
                         # Store negative hypothesis in database for model learning
-                        hypothesis_text = (
-                            self.memory.view_component("hypothesis")
-                            or self.memory.get_var("last_hypothesis")
-                            or ""
-                        )
-                        if isinstance(hypothesis_text, str):
-                            hypothesis_text = hypothesis_text[:4000]
-                        else:
-                            hypothesis_text = str(hypothesis_text)[:4000]
                         self.memory.add_negative_hypothesis(
                             hypothesis_text=hypothesis_text,
                             status=parsed["hypothesis_status"],

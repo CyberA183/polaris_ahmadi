@@ -27,16 +27,19 @@ try {
 }
 
 # Check for API key in environment
-$apiKey = $env:GEMINI_API_KEY
+$apiKey = $env:HUGGINGFACE_API_KEY
 if (-not $apiKey) {
-    $apiKey = $env:GOOGLE_API_KEY
+    $apiKey = $env:HF_API_KEY
+}
+if (-not $apiKey) {
+    $apiKey = $env:LLM_API_KEY
 }
 
 if (-not $apiKey) {
     Write-Host ""
     Write-Host "⚠️  WARNING: No API key found in environment variables!" -ForegroundColor Yellow
-    Write-Host "   Set GEMINI_API_KEY or GOOGLE_API_KEY environment variable before starting." -ForegroundColor Yellow
-    Write-Host "   Example: `$env:GEMINI_API_KEY = 'your-api-key-here'" -ForegroundColor Yellow
+    Write-Host "   Set HUGGINGFACE_API_KEY (or HF_API_KEY) or LLM_API_KEY before starting." -ForegroundColor Yellow
+    Write-Host "   Example: `$env:HUGGINGFACE_API_KEY = 'your-api-key-here'" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "   The watcher will start but LLM features may not work." -ForegroundColor Yellow
     Write-Host ""

@@ -19,39 +19,25 @@ if sys.platform == "win32":
                 pass
 
 # Lazy import heavy dependencies - only load when actually needed
-_genai = None
 _edison_client = None
 _edison_models = None
 _given_vars = None
 
 # Initialize API key from environment - will be updated by streamlit_app if needed
-GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+QWEN_API_KEY = (
+    os.getenv("HUGGINGFACE_API_KEY")
+    or os.getenv("HF_API_KEY")
+    or os.getenv("LLM_API_KEY")
+    or os.getenv("DASHSCOPE_API_KEY")
+)
 FUTUREHOUSE_API_KEY = os.getenv("FUTUREHOUSE_API_KEY")
-GOOGLE_MODEL_ID = "gemini-2.5-flash-lite"
+QWEN_MODEL_ID = "Qwen/Qwen2.5-72B-Instruct"
 
 # Log API key status on import (first 10 chars only) - but only if API key exists
-if GOOGLE_API_KEY:
-    logging.info(f"API key loaded from environment on module import (starts with: {GOOGLE_API_KEY[:10]}...)")
+if QWEN_API_KEY:
+    logging.info(f"Qwen API key loaded from environment on module import (starts with: {QWEN_API_KEY[:10]}...)")
 else:
     logging.warning("No API key found in environment on module import. Will check again at runtime.")
-
-def _lazy_import_genai():
-    """
-    Lazy import of google.generativeai to speed up module loading.
-    
-    Note: google.generativeai is deprecated in favor of google.genai.
-    This code still works but will need migration in the future.
-    See: https://github.com/google-gemini/deprecated-generative-ai-python
-    """
-    global _genai
-    if _genai is None:
-        import warnings
-        # Suppress deprecation warning for now (package still works)
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=DeprecationWarning)
-            import google.generativeai as genai  # type: ignore
-        _genai = genai
-    return _genai
 
 
 def _lazy_import_edison():
@@ -99,7 +85,7 @@ def _lazy_import_given_vars():
 
 
 def generate_text_with_llm(prompt: str) -> str:
-    """Generate text using configured LLM (Gemini or Qwen 2.5)."""
+    """Generate text using configured Qwen model."""
     try:
         # Load .env if available — override=True so .env always wins over stale inherited env vars
         try:
@@ -110,21 +96,22 @@ def generate_text_with_llm(prompt: str) -> str:
         except (ImportError, Exception):
             pass
 
-        provider = os.getenv("LLM_PROVIDER") or "gemini"
-        if provider == "gemini":
-            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("LLM_API_KEY")
-        else:
-            api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("LLM_API_KEY")
+        provider = "qwen"
+        api_key = (
+            os.getenv("HUGGINGFACE_API_KEY")
+            or os.getenv("HF_API_KEY")
+            or os.getenv("LLM_API_KEY")
+            or os.getenv("DASHSCOPE_API_KEY")
+        )
 
         if not api_key:
-            api_key = GOOGLE_API_KEY
+            api_key = QWEN_API_KEY
 
         if not api_key or not api_key.strip():
-            key_hint = "GEMINI_API_KEY or GOOGLE_API_KEY" if provider == "gemini" else "DASHSCOPE_API_KEY"
-            raise ValueError(f"API key not found. Set {key_hint} or enter it in Settings.")
+            raise ValueError("API key not found. Set HUGGINGFACE_API_KEY (or HF_API_KEY) or enter it in Settings.")
 
-        model = os.getenv("LLM_MODEL") or (GOOGLE_MODEL_ID if provider == "gemini" else "qwen2.5-72b-instruct")
-        qwen_base_url = os.getenv("QWEN_BASE_URL") or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        model = os.getenv("LLM_MODEL") or QWEN_MODEL_ID
+        qwen_base_url = os.getenv("QWEN_BASE_URL") or "https://router.huggingface.co/v1"
 
         logging.info(f"Using {provider} model {model}, API key present: {bool(api_key)}")
 

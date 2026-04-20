@@ -76,7 +76,7 @@ with tabs[0]:
     
     ### 🚀 Getting Started
 
-    1. **Configure API Key**: Go to Settings → General and enter your API key (Gemini or Qwen/DashScope)
+    1. **Configure API Key**: Go to Settings → General and enter your Hugging Face API key (Qwen)
     2. **Configure Experiment Settings**: Go to Settings → Experiment and configure Jupyter upload options
     3. **Configure Watcher (Optional)**: Go to Watcher Control → Configuration to set the watch directory and enable the watcher
     4. **Start with Hypothesis**: Navigate to the Hypothesis page and enter your research question

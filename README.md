@@ -15,6 +15,19 @@ pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
+### LLM defaults (Qwen-first)
+- - -
+POLARIS now defaults to Qwen for agent reasoning and routing.
+
+Recommended environment variables:
+
+```commandline
+LLM_PROVIDER=qwen
+HUGGINGFACE_API_KEY=your_hf_token
+LLM_MODEL=Qwen/Qwen2.5-VL-72B-Instruct
+QWEN_BASE_URL=https://router.huggingface.co/v1
+```
+
 ### Briefcase packaging (macOS, Windows, Android, iOS)
 - - -
 Detailed setup and platform prerequisites are in `BUILDING.md`.
@@ -95,4 +108,40 @@ Recommended hosted manifest URL:
 
 ```text
 https://github.com/CyberA183/polaris_ahmadi/releases/latest/download/version.json
+```
+
+### MCP orchestrator quick start
+- - -
+Start the lightweight orchestrator service:
+
+```commandline
+python watcher/orchestrator_mcp.py
+```
+
+Optional environment overrides:
+
+```commandline
+LITERATURE_MCP_ENDPOINT=http://127.0.0.1:8000/mcp
+MCP_ORCH_HOST=127.0.0.1
+MCP_ORCH_PORT=8010
+```
+
+Run smoke checks:
+
+```commandline
+./scripts/mcp_orchestrator_smoke.sh
+```
+
+```commandline
+powershell -ExecutionPolicy Bypass -File .\scripts\mcp_orchestrator_smoke.ps1
+```
+
+Run process-tool smoke checks (`list_processed_papers`, `get_saved_paper_output`, fallback `process_batch`):
+
+```commandline
+./scripts/mcp_orchestrator_process_smoke.sh
+```
+
+```commandline
+powershell -ExecutionPolicy Bypass -File .\scripts\mcp_orchestrator_process_smoke.ps1
 ```

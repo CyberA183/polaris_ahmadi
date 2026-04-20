@@ -1,7 +1,7 @@
 # Streamlit Startup Script for POLARIS Hypothesis Agent (Optimized)
 # API keys are loaded from .env file or can be set in environment before running
-# Example: $env:GEMINI_API_KEY = "your-key-here"
-# Or create a .env file in the project root with: GEMINI_API_KEY=your-key-here
+# Example: $env:HUGGINGFACE_API_KEY = "your-key-here"
+# Or create a .env file in the project root with: HUGGINGFACE_API_KEY=your-key-here
 
 # Change to script directory (polaris_ahmadi)
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -11,7 +11,15 @@ Write-Host "========================================"
 Write-Host "POLARIS Hypothesis Agent - Streamlit"
 Write-Host "========================================"
 Write-Host "Current directory: $(Get-Location)"
-Write-Host "API Key: $($env:GOOGLE_API_KEY.Substring(0, [Math]::Min(10, $env:GOOGLE_API_KEY.Length)))..."
+if ($env:HUGGINGFACE_API_KEY) {
+    Write-Host "API Key: $($env:HUGGINGFACE_API_KEY.Substring(0, [Math]::Min(10, $env:HUGGINGFACE_API_KEY.Length)))..."
+} elseif ($env:HF_API_KEY) {
+    Write-Host "API Key: $($env:HF_API_KEY.Substring(0, [Math]::Min(10, $env:HF_API_KEY.Length)))..."
+} elseif ($env:LLM_API_KEY) {
+    Write-Host "API Key: $($env:LLM_API_KEY.Substring(0, [Math]::Min(10, $env:LLM_API_KEY.Length)))..."
+} else {
+    Write-Host "API Key: not set"
+}
 Write-Host ""
 
 # Choose which app to run (uncomment the one you want)

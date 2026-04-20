@@ -13,31 +13,32 @@ import transformers
 from tools.script_executor import ScriptExecutor
 from tools.instruct import FITTING_SCRIPT_GENERATION_INSTRUCTIONS
 
-# Optional Google AI Studio (Gemini) support
-GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-LLM_PROVIDER = (os.environ.get("LLM_PROVIDER") or "google").lower()  # 'google' or 'hf'
-GOOGLE_MODEL_ID = os.environ.get("GOOGLE_MODEL_ID") or "gemini-2.5-flash-lite"  # Text-only model (use preview-image for images)
+LLM_PROVIDER = (os.environ.get("LLM_PROVIDER") or "qwen").lower()  # 'qwen' or 'hf'
+QWEN_MODEL_ID = os.environ.get("LLM_MODEL") or "Qwen/Qwen2.5-72B-Instruct"
+QWEN_BASE_URL = os.environ.get("QWEN_BASE_URL") or "https://router.huggingface.co/v1"
+QWEN_API_KEY = (
+    os.getenv("HUGGINGFACE_API_KEY")
+    or os.getenv("HF_API_KEY")
+    or os.getenv("LLM_API_KEY")
+    or os.getenv("DASHSCOPE_API_KEY")
+)
 HF_MODEL_ID = os.environ.get("HF_MODEL_ID") or "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-
-try:
-    if GOOGLE_API_KEY:
-        import google.generativeai as genai
-except Exception:
-    genai = None
 
 
 def generate_text_with_llm(prompt: str, max_tokens: int = 1500) -> str:
-    """Generate text using configured provider (Google AI Studio preferred)."""
-    # Prefer Google if key is present and provider set to google
-    if LLM_PROVIDER == "google" and GOOGLE_API_KEY and genai is not None:
+    """Generate text using configured provider (Qwen preferred)."""
+    if LLM_PROVIDER == "qwen" and QWEN_API_KEY:
         try:
-            genai.configure(api_key=GOOGLE_API_KEY)
-            model = genai.GenerativeModel(GOOGLE_MODEL_ID)
-            resp = model.generate_content(prompt)
-            text = resp.text or ""
-            return text
+            from openai import OpenAI
+            client = OpenAI(api_key=QWEN_API_KEY, base_url=QWEN_BASE_URL)
+            resp = client.chat.completions.create(
+                model=QWEN_MODEL_ID,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+            )
+            return resp.choices[0].message.content or ""
         except Exception as e:
-            logging.error(f"Google AI Studio generation failed: {e}")
+            logging.error(f"Qwen generation failed: {e}")
             # fall back to HF below
     # Fallback: Hugging Face transformers local/remote
     try:

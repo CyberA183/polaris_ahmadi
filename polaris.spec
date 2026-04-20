@@ -62,7 +62,6 @@ hiddenimports = sorted(
             "altair",
             "openpyxl",
             "sqlite3",
-            "google.generativeai",
             "dotenv",
             "PIL",
             "openai",

@@ -181,7 +181,12 @@ Return ONLY the exact name of the chosen agent from the list above, with no expl
         llm_agent = None
         try:
             import os
-            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            api_key = (
+                os.getenv("HUGGINGFACE_API_KEY")
+                or os.getenv("HF_API_KEY")
+                or os.getenv("LLM_API_KEY")
+                or os.getenv("DASHSCOPE_API_KEY")
+            )
             if api_key:
                 llm_agent = self._llm_select_agent(payload, memory)
         except Exception:
@@ -283,7 +288,12 @@ Return ONLY the exact name of the chosen agent from the list above, with no expl
         llm_agent = None
         try:
             import os
-            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            api_key = (
+                os.getenv("HUGGINGFACE_API_KEY")
+                or os.getenv("HF_API_KEY")
+                or os.getenv("LLM_API_KEY")
+                or os.getenv("DASHSCOPE_API_KEY")
+            )
             if api_key:
                 llm_agent = self._llm_select_agent(payload, memory)
             else:

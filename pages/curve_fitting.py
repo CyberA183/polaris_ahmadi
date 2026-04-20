@@ -4,7 +4,7 @@ import tempfile
 import json
 import re
 import time
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Dict, List
 
@@ -690,6 +690,84 @@ def load_csv_data(file_bytes: bytes, filename: str):
     """Load and cache CSV data with spectroscopy-aware parsing"""
     return parse_spectroscopy_csv(file_bytes, filename)
 
+
+def _read_uploaded_file_bytes(file_obj) -> bytes:
+    """Read bytes from Streamlit uploader object or watcher path shim."""
+    if hasattr(file_obj, "getvalue"):
+        data = file_obj.getvalue()
+        return data if isinstance(data, bytes) else str(data).encode("utf-8")
+    if hasattr(file_obj, "path"):
+        with open(file_obj.path, "rb") as f:
+            return f.read()
+    if isinstance(file_obj, str):
+        with open(file_obj, "rb") as f:
+            return f.read()
+    raise ValueError(f"Unsupported file object type: {type(file_obj)}")
+
+
+def _build_curve_diagnostics_payload(data_file, plate_format: str | None) -> dict:
+    """
+    Build lightweight diagnostics for read block parsing before running analysis.
+    """
+    from tools.fitting_agent import CurveFitting
+
+    raw_bytes = _read_uploaded_file_bytes(data_file)
+    is_excel = str(getattr(data_file, "name", "")).lower().endswith((".xlsx", ".xls"))
+
+    if is_excel:
+        csv_bytes = convert_excel_to_spectroscopy_csv(
+            raw_bytes,
+            getattr(data_file, "name", "uploaded.xlsx"),
+            start_row=4,
+            read_start_col=1,
+            plate_format=plate_format,
+        )
+        csv_text = csv_bytes.decode("utf-8", errors="replace")
+    else:
+        try:
+            csv_text = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            csv_text = raw_bytes.decode("latin-1")
+
+    df = pd.read_csv(
+        StringIO(csv_text),
+        header=None,
+        engine="python",
+        sep=",",
+        skipinitialspace=True,
+    )
+
+    starts = CurveFitting._find_read_block_starts(df)
+    blocks = CurveFitting.parse_all_reads(df)
+
+    block_summaries = []
+    usable_count = 0
+    for read_num, block in sorted(blocks.items()):
+        numeric = block.apply(pd.to_numeric, errors="coerce")
+        numeric_cells = int(numeric.notna().sum().sum())
+        is_usable = numeric_cells > 0 and not block.empty
+        if is_usable:
+            usable_count += 1
+        block_summaries.append(
+            {
+                "read": int(read_num),
+                "rows": int(block.shape[0]),
+                "cols": int(block.shape[1]),
+                "numeric_cells": numeric_cells,
+                "usable": is_usable,
+            }
+        )
+
+    preview_lines = csv_text.splitlines()[:12]
+    return {
+        "detected_read_headers": len(starts),
+        "detected_read_numbers": sorted(list(starts.keys())),
+        "parsed_blocks": len(blocks),
+        "usable_blocks": usable_count,
+        "block_summaries": block_summaries,
+        "csv_preview": "\n".join(preview_lines),
+    }
+
 # ============================================================================
 # SPECTROPUS-STYLE CURVE FITTING AGENT SECTION
 # ============================================================================
@@ -967,7 +1045,7 @@ with col3:
         max_value=5.0,
         value=0.5,
         step=0.1,
-        help="Delay between Gemini API calls to prevent rate limit (RPD) errors. Default: 0.5s. Increase if you hit rate limits."
+        help="Delay between Qwen API calls to prevent rate limit (RPD) errors. Default: 0.5s. Increase if you hit rate limits."
     )
     st.caption(f"Current delay: {api_delay_seconds}s ({api_delay_seconds*1000:.0f}ms) between calls")
 
@@ -1032,6 +1110,39 @@ if not use_step_size:
 # Analysis section
 st.header("▶️ Run Analysis")
 
+with st.expander("Read Block Diagnostics (optional)", expanded=False):
+    st.caption("Preview detected `Read N` blocks and usable numeric data before running.")
+    if st.button("Inspect Uploaded Data Blocks", width="stretch"):
+        uploaded_data = memory.get_var("cf_data_file")
+        if not uploaded_data:
+            st.warning("Upload a spectral data file first, then run diagnostics.")
+        else:
+            try:
+                diagnostics = _build_curve_diagnostics_payload(
+                    uploaded_data, memory.get_var("plate_format")
+                )
+                st.success(
+                    f"Detected {diagnostics['parsed_blocks']} read block(s), "
+                    f"{diagnostics['usable_blocks']} usable."
+                )
+                st.json(
+                    {
+                        "detected_read_headers": diagnostics["detected_read_headers"],
+                        "detected_read_numbers": diagnostics["detected_read_numbers"],
+                        "parsed_blocks": diagnostics["parsed_blocks"],
+                        "usable_blocks": diagnostics["usable_blocks"],
+                    }
+                )
+                if diagnostics["block_summaries"]:
+                    st.dataframe(pd.DataFrame(diagnostics["block_summaries"]), width="stretch")
+                st.text_area(
+                    "CSV Preview (first 12 lines)",
+                    value=diagnostics["csv_preview"],
+                    height=220,
+                )
+            except Exception as exc:
+                st.error(f"Diagnostics failed: {exc}")
+
 col1, col2 = st.columns([3, 1])
 
 with col1:
@@ -1080,7 +1191,7 @@ if run_button or auto_run_triggered:
         composition_file = memory.get_var("cf_composition_file")
 
     if not memory.get_var("api_key"):
-        st.error("❌ Please set your Google Gemini API key in Settings before running analysis.")
+        st.error("❌ Please set your Hugging Face API key (Qwen) in Settings before running analysis.")
         st.stop()
 
     # Get files from session state
@@ -1612,9 +1723,9 @@ with st.expander("📖 How to Use the Curve Fitting Agent", expanded=False):
     
     ### Rate Limiting
     
-    - **API Delay**: A default 0.5 second delay is added between Gemini API calls to prevent rate limit (RPD) errors
+    - **API Delay**: A default 0.5 second delay is added between Qwen API calls to prevent rate limit (RPD) errors
     - **Adjusting Delay**: If you encounter rate limit errors, increase the "Delay Between API Calls" parameter
-    - **Environment Variables**: You can also set `GEMINI_MIN_DELAY_MS` (milliseconds) or `GEMINI_MIN_DELAY_S` (seconds) environment variables
+    - **Environment Variables**: You can also control delay in the Settings page using "Delay Between API Calls"
     - **Recommended Settings**: 
       - Small batches (< 10 wells): 0.5s delay
       - Medium batches (10-50 wells): 1.0s delay  

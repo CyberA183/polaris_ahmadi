@@ -98,10 +98,15 @@ logging.getLogger("streamlit.runtime.state").setLevel(logging.ERROR)
 # Ensure API key is available from environment for headless mode
 def _ensure_api_key():
     """Ensure API key is available in environment for headless mode."""
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    api_key = (
+        os.getenv("HUGGINGFACE_API_KEY")
+        or os.getenv("HF_API_KEY")
+        or os.getenv("LLM_API_KEY")
+        or os.getenv("DASHSCOPE_API_KEY")
+    )
     if not api_key:
         logger.warning(
-            "No API key found in environment variables (GEMINI_API_KEY or GOOGLE_API_KEY). "
+            "No API key found in environment variables (HUGGINGFACE_API_KEY, HF_API_KEY, or LLM_API_KEY). "
             "LLM features may not work. Set the API key as an environment variable before starting the watcher server."
         )
     else:

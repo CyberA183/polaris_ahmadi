@@ -140,8 +140,10 @@ def start_watcher_server():
         
         # Prepare environment with API key
         env = os.environ.copy()
-        env["GEMINI_API_KEY"] = api_key
-        env["GOOGLE_API_KEY"] = api_key
+        env["HUGGINGFACE_API_KEY"] = api_key
+        env["HF_API_KEY"] = api_key
+        env["DASHSCOPE_API_KEY"] = api_key
+        env["LLM_API_KEY"] = api_key
         
         # Start the watcher server as a subprocess
         # Use CREATE_NEW_PROCESS_GROUP on Windows to allow proper termination
@@ -571,7 +573,7 @@ with tabs[5]:
         
         1. **Set API Key** (if not already set):
            - Go to Settings → General tab
-           - Enter your Google Gemini API key
+           - Enter your Hugging Face API key for Qwen
            - The watcher server will automatically use this key
         
         2. **Start Watcher Server**:

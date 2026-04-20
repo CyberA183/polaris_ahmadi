@@ -219,3 +219,41 @@ with st.expander("📤 Export Data", expanded=False):
             mime="text/plain",
             use_container_width=True,
         )
+
+st.divider()
+st.subheader("Hypothesis Outcomes")
+st.caption("View previously recorded hypotheses and their labels (positive/confirmed/rejected/needs revision).")
+
+outcomes = memory.get_hypothesis_outcomes(limit=500) or []
+if not outcomes:
+    st.info("No hypothesis outcomes recorded yet.")
+else:
+    status_filter_options = ["all"] + sorted({(o.get("status") or "unknown") for o in outcomes})
+    selected_status = st.selectbox("Filter by status", status_filter_options, index=0, key="hyp_outcome_filter")
+
+    filtered = outcomes
+    if selected_status != "all":
+        filtered = [o for o in outcomes if (o.get("status") or "unknown") == selected_status]
+
+    display_rows = []
+    for row in filtered:
+        display_rows.append(
+            {
+                "Created At": row.get("created_at", ""),
+                "Status": row.get("status", ""),
+                "Material Hint": row.get("material_hint", ""),
+                "Source": row.get("source", ""),
+                "Hypothesis": (row.get("hypothesis_text", "") or "")[:240],
+                "Evidence Summary": (row.get("evidence_summary", "") or "")[:240],
+            }
+        )
+
+    st.dataframe(display_rows, use_container_width=True)
+
+    st.download_button(
+        label="Export Hypothesis Outcomes (JSON)",
+        data=json.dumps(filtered, indent=2),
+        file_name=f"hypothesis_outcomes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+        mime="application/json",
+        use_container_width=True,
+    )

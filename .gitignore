@@ -54,3 +54,5 @@ dist/
 # Release archives (built by CI; do not commit locally)
 Polaris-win.zip
 Polaris.app.zip
+
+lagent_mcp_http_server_cached_summaries_FIXED_v3.py

@@ -16,11 +16,12 @@ analysis = st.Page("pages/analysis.py", title="Analysis", icon=":material/analyt
 settings = st.Page("pages/settings.py", title="Settings", icon=":material/settings:")
 history = st.Page("pages/history.py", title="History", icon=":material/history:")
 watcher_control = st.Page("pages/watcher_control.py", title="Watcher Control", icon=":material/visibility:")
+mcp_orchestrator = st.Page("pages/mcp_orchestrator.py", title="MCP Orchestrator", icon=":material/hub:")
 
 pg = st.navigation({
     "General": [home, dashboard, workflow],
     "Agents": [hypothesis, experiment, curve_fit, ml_models, analysis],
-    "Tools": [watcher_control, settings, history],
+    "Tools": [watcher_control, mcp_orchestrator, settings, history],
 })
 
 pg.run()

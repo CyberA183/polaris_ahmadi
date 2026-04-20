@@ -43,9 +43,9 @@ DEFAULT_APP_CONFIG = {
     "api_key_source": "",
     "current_user_id": "",
     "current_experiment_id": 0,  # 0 = no active experiment (use legacy session_state)
-    "llm_provider": "gemini",  # "gemini" | "qwen"
-    "llm_model": "gemini-2.5-flash-lite",  # or "qwen2.5-72b-instruct", "qwen-plus", etc.
-    "qwen_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",  # DashScope OpenAI-compatible endpoint
+    "llm_provider": "qwen",
+    "llm_model": "Qwen/Qwen2.5-VL-72B-Instruct",
+    "qwen_base_url": "https://router.huggingface.co/v1",  # Hugging Face OpenAI-compatible router
     "stage": "initial",
     "cf_data_path": "",
     "cf_comp_path": "",
@@ -235,6 +235,16 @@ class DatabaseManager:
                 research_question TEXT,
                 analysis_summary TEXT,
                 context_json TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS hypothesis_outcomes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hypothesis_text TEXT NOT NULL,
+                material_hint TEXT,
+                status TEXT NOT NULL,
+                evidence_summary TEXT,
+                source TEXT,
                 created_at TEXT NOT NULL
             );
         """)
@@ -836,6 +846,58 @@ class DatabaseManager:
                 "research_question": r[2] or "",
                 "analysis_summary": r[3] or "",
                 "created_at": r[4] or "",
+            }
+            for r in rows
+        ]
+
+    def add_hypothesis_outcome(
+        self,
+        hypothesis_text: str,
+        status: str,
+        material_hint: str = "",
+        evidence_summary: str = "",
+        source: str = "orchestrator",
+    ) -> None:
+        conn = _get_conn()
+        conn.execute(
+            """INSERT INTO hypothesis_outcomes
+               (hypothesis_text, material_hint, status, evidence_summary, source, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                hypothesis_text,
+                material_hint or "",
+                status,
+                evidence_summary or "",
+                source or "orchestrator",
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            ),
+        )
+        conn.commit()
+
+    def get_hypothesis_outcomes(self, limit: Optional[int] = 200) -> List[Dict]:
+        conn = _get_conn()
+        if limit is None:
+            rows = conn.execute(
+                """SELECT hypothesis_text, material_hint, status, evidence_summary, source, created_at
+                   FROM hypothesis_outcomes
+                   ORDER BY id DESC"""
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT hypothesis_text, material_hint, status, evidence_summary, source, created_at
+                   FROM hypothesis_outcomes
+                   ORDER BY id DESC
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "hypothesis_text": r[0],
+                "material_hint": r[1] or "",
+                "status": r[2],
+                "evidence_summary": r[3] or "",
+                "source": r[4] or "",
+                "created_at": r[5] or "",
             }
             for r in rows
         ]

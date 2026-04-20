@@ -32,7 +32,6 @@ a = Analysis(
         'matplotlib',
         'plotly',
         'lmfit',
-        'google.generativeai',
         'PIL',
         'scipy',
         'sklearn',

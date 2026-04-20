@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import time
+import base64
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
@@ -20,57 +21,7 @@ except ModuleNotFoundError:
     # Fallback for when running from within tools directory
     from instruct import get_prompt
 
-# ---------- LLM client (Gemini) ----------
-
-# try:
-#     import google.generativeai as genai  # type: ignore
-# except ImportError:
-#     genai = None
-
-
-# class LLMClient:
-#     """Lightweight wrapper for Gemini text and multimodal calls."""
-
-#     def __init__(self, api_key: Optional[str] = None, model_id: str = "gemini-1.5-flash"):
-#         key = api_key or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-#         if not key:
-#             raise ValueError(
-#                 "No API key found. Provide api_key or set GOOGLE_API_KEY/GEMINI_API_KEY in your environment."
-#             )
-#         if genai is None:
-#             raise ImportError("google-generativeai not installed. pip install google-generativeai")
-
-#         genai.configure(api_key=key)
-#         self.model = genai.GenerativeModel(model_id)
-
-#     def generate(self, prompt: str, max_tokens: int = 1500) -> str:
-#         """Text-only prompt. Returns plain text."""
-#         try:
-#             resp = self.model.generate_content(prompt, generation_config={"max_output_tokens": int(max_tokens)})
-#             return getattr(resp, "text", "") or ""
-#         except Exception as e:
-#             logging.error(f"LLM text generation failed: {e}")
-#             raise
-
-#     def generate_multimodal(self, parts: List[Any], max_tokens: int = 1500) -> str:
-#         """Multimodal prompt with [text, image, ...] parts."""
-#         try:
-#             resp = self.model.generate_content(parts, generation_config={"max_output_tokens": int(max_tokens)})
-#             return getattr(resp, "text", "") or ""
-#         except Exception as e:
-#             logging.error(f"LLM multimodal generation failed: {e}")
-#             raise
-
 # ---------- LLM client with multiple providers ----------
-
-try:
-    import warnings
-    # Suppress deprecation warning for now (package still works)
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=DeprecationWarning)
-        import google.generativeai as genai  # type: ignore
-except ImportError:
-    genai = None
 
 try:
     from openai import OpenAI  # OpenAI official client
@@ -84,58 +35,40 @@ except ImportError:
 
 
 class LLMClient:
-    """Wrapper for multiple LLM providers (Gemini, OpenAI, Anthropic)."""
+    """Wrapper for multiple LLM providers (Qwen, OpenAI, Anthropic)."""
 
     def __init__(
         self,
-        provider: str = "gemini",
+        provider: str = "qwen",
         model_id: Optional[str] = None,
         api_key: Optional[str] = None,
         *,
-        min_delay_seconds: Optional[float] = None,  # optional throttle between Gemini calls
+        min_delay_seconds: Optional[float] = None,
     ):
         self.provider = provider.lower()
+        self.min_delay = float(min_delay_seconds) if min_delay_seconds is not None else 0.0
+        self._last_call_ts = 0.0
 
-        if self.provider == "gemini":
-            key = api_key or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-            if not key:
-                raise ValueError("No Gemini API key found. Set GOOGLE_API_KEY or GEMINI_API_KEY.")
-            if genai is None:
-                raise ImportError("google-generativeai not installed. pip install google-generativeai")
-
-            # Store API key and model IDs for reference
-            self.api_key = key
-            # Use available models - gemini-2.0-flash-lite for both text and image operations
-            self.model_id_image = model_id or "gemini-2.5-flash-preview-image"  # For image analysis
-            self.model_id_text = "gemini-2.0-flash-lite"  # For text-only calls
-            self.model_id = self.model_id_image  # Default to image model
-            
-            # Store models separately for lazy loading
-            self._model_image = None
-            self._model_text = None
-
-            # Optional throttle between Gemini calls to reduce RPD spikes
-            # Default delay: 0.5 seconds (500ms) to prevent rate limit issues
-            env_delay_ms = os.environ.get("GEMINI_MIN_DELAY_MS")
-            env_delay_s = os.environ.get("GEMINI_MIN_DELAY_S")
-            default_delay = 0.5  # Default 500ms delay between calls
-            self.min_delay = (
-                float(env_delay_ms) / 1000.0
-                if env_delay_ms is not None
-                else (float(env_delay_s) if env_delay_s is not None else (min_delay_seconds if min_delay_seconds is not None else default_delay))
+        if self.provider == "qwen":
+            key = (
+                api_key
+                or os.environ.get("HUGGINGFACE_API_KEY")
+                or os.environ.get("HF_API_KEY")
+                or os.environ.get("LLM_API_KEY")
+                or os.environ.get("DASHSCOPE_API_KEY")
             )
-            # Track last call time for throttling
-            self._last_call_ts = 0.0
+            if not key:
+                raise ValueError("No Qwen API key found. Set HUGGINGFACE_API_KEY (or HF_API_KEY) or LLM_API_KEY.")
+            if OpenAI is None:
+                raise ImportError("openai not installed. pip install openai")
 
-            # Ensure API key is in environment (required by some versions of the library)
-            os.environ['GOOGLE_API_KEY'] = key
-            os.environ['GEMINI_API_KEY'] = key
-
-            # Configure genai with API key (must be done before creating model)
-            genai.configure(api_key=key)
-
-            # Create models lazily when needed (don't create here)
-            # Models will be created in generate() and generate_multimodal() methods
+            base_url = os.environ.get("QWEN_BASE_URL") or "https://router.huggingface.co/v1"
+            self.client = OpenAI(api_key=key, base_url=base_url)
+            # Prefer vision-capable model by default because curve fitting uses image analysis.
+            self.model_id = model_id or "Qwen/Qwen2.5-VL-72B-Instruct"
+            self.api_key = key
+            self.model_id_text = os.environ.get("QWEN_TEXT_MODEL") or "Qwen/Qwen2.5-72B-Instruct"
+            self.model_id_image = self.model_id
 
         elif self.provider == "openai":
             key = api_key or os.environ.get("OPENAI_API_KEY")
@@ -159,9 +92,7 @@ class LLMClient:
             raise ValueError(f"Unsupported provider: {provider}")
 
     def _throttle(self):
-        """Simple delay between Gemini calls to keep RPD down."""
-        if self.provider != "gemini":
-            return
+        """Simple delay between calls to keep RPD down."""
         if self.min_delay and self.min_delay > 0:
             now = time.monotonic()
             elapsed = now - self._last_call_ts
@@ -170,56 +101,16 @@ class LLMClient:
             self._last_call_ts = time.monotonic()
 
     def generate(self, prompt: str, max_tokens: int = 1500) -> str:
-        """Text-only generation across providers. Uses text-only model (gemini-2.5-flash-lite)."""
+        """Text-only generation across providers."""
         try:
-            if self.provider == "gemini":
-                self._throttle()
-                # ALWAYS reconfigure genai before each call to ensure API key is set
-                # This matches the working test_api_key.py pattern
-                if not hasattr(self, 'api_key') or not self.api_key:
-                    raise ValueError("API key not found in LLMClient instance")
-
-                # Use text-only model for text generation
-                model_id_to_use = self.model_id_text
-
-                # Ensure environment has the key
-                os.environ['GOOGLE_API_KEY'] = self.api_key
-                os.environ['GEMINI_API_KEY'] = self.api_key
-
-                # Always reconfigure - this is what makes test_api_key.py work
-                # This MUST be done before creating the model
-                genai.configure(api_key=self.api_key)
-
-                # Use cached text model or create it
-                if self._model_text is None:
-                    try:
-                        self._model_text = genai.GenerativeModel(model_id_to_use)
-                    except Exception as model_error:
-                        logging.error(f"Failed to create Gemini text model: {model_error}")
-                        logging.error(f"Model ID: {model_id_to_use}")
-                        logging.error(f"API key present: {bool(self.api_key)}, length: {len(self.api_key) if self.api_key else 0}")
-                        raise
-
-                # Make the API call - use text-only model
-                resp = self._model_text.generate_content(prompt, generation_config={"max_output_tokens": int(max_tokens)})
-                # Check if response has valid candidates with parts
-                if resp.candidates and len(resp.candidates) > 0:
-                    candidate = resp.candidates[0]
-                    # Check finish_reason - 2 means BLOCKED
-                    if hasattr(candidate, 'finish_reason') and candidate.finish_reason == 2:
-                        raise ValueError(f"Gemini response was blocked (finish_reason=2). This may indicate content filtering or safety restrictions.")
-                    # Check if candidate has parts
-                    if hasattr(candidate, 'content') and candidate.content and hasattr(candidate.content, 'parts'):
-                        if len(candidate.content.parts) > 0:
-                            return candidate.content.parts[0].text
-                # Fallback: try the text property, but handle errors gracefully
-                try:
-                    return resp.text
-                except ValueError as e:
-                    if "finish_reason" in str(e) or "Part" in str(e):
-                        raise ValueError(f"Gemini response has no valid content. finish_reason may indicate blocking or filtering.")
-                    raise
-
+            self._throttle()
+            if self.provider == "qwen":
+                resp = self.client.chat.completions.create(
+                    model=self.model_id_text,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=max_tokens,
+                )
+                return resp.choices[0].message.content or ""
             elif self.provider == "openai":
                 resp = self.client.chat.completions.create(
                     model=self.model_id,
@@ -227,7 +118,6 @@ class LLMClient:
                     max_tokens=max_tokens,
                 )
                 return resp.choices[0].message.content
-
             elif self.provider == "anthropic":
                 resp = self.client.messages.create(
                     model=self.model_id,
@@ -237,115 +127,14 @@ class LLMClient:
                 return resp.content[0].text if resp.content else ""
 
         except Exception as e:
-            error_msg = str(e)
-            # Enhanced error logging for API key issues
-            if "API_KEY_INVALID" in error_msg or "API Key not found" in error_msg:
-                logging.error(f"LLM text generation failed ({self.provider}): API key issue")
-                logging.error(f"Error details: {error_msg}")
-                if hasattr(self, 'api_key'):
-                    logging.error(f"API key present in LLMClient: {bool(self.api_key)}")
-                    logging.error(f"API key in environment: {bool(os.environ.get('GOOGLE_API_KEY'))}")
-                else:
-                    logging.error("API key not found in LLMClient instance")
-            else:
-                logging.error(f"LLM text generation failed ({self.provider}): {e}")
+            logging.error(f"LLM text generation failed ({self.provider}): {e}")
             raise
 
     def generate_multimodal(self, parts: List[Any], max_tokens: int = 1500) -> str:
-        """Multimodal prompt (text+image). Uses image-capable model (gemini-2.5-flash-preview-image)."""
+        """Multimodal prompt (text+image)."""
         try:
-            if self.provider == "gemini":
-                self._throttle()
-                # ALWAYS reconfigure genai before each call to ensure API key is set
-                # This matches the working test_api_key.py pattern
-                if not hasattr(self, 'api_key') or not self.api_key:
-                    raise ValueError("API key not found in LLMClient instance")
-
-                # Use image-capable model for multimodal generation
-                model_id_to_use = self.model_id_image
-
-                # Ensure environment has the key
-                os.environ['GOOGLE_API_KEY'] = self.api_key
-                os.environ['GEMINI_API_KEY'] = self.api_key
-
-                # Always reconfigure - this is what makes test_api_key.py work
-                # This MUST be done before creating the model
-                genai.configure(api_key=self.api_key)
-
-                # Use cached image model or create it
-                if self._model_image is None:
-                    try:
-                        self._model_image = genai.GenerativeModel(model_id_to_use)
-                    except Exception as model_error:
-                        logging.warning(f"Failed to create Gemini image model {model_id_to_use}: {model_error}")
-                        logging.warning(f"Falling back to text-only model {self.model_id_text}")
-                        # Fallback: try text model if image model fails
-                        if self._model_text is None:
-                            self._model_text = genai.GenerativeModel(self.model_id_text)
-                        # Extract text part only for fallback
-                        text_part = parts[0] if parts else ""
-                        resp = self._model_text.generate_content(text_part, generation_config={"max_output_tokens": int(max_tokens)})
-                        # Handle response same as below
-                        if resp.candidates and len(resp.candidates) > 0:
-                            candidate = resp.candidates[0]
-                            if hasattr(candidate, 'content') and candidate.content and hasattr(candidate.content, 'parts'):
-                                if len(candidate.content.parts) > 0:
-                                    return candidate.content.parts[0].text
-                        return resp.text
-
-                # Make the API call - use image-capable model with retry for transient errors
-                import time
-                max_retries = 3
-                retry_delay = 2  # seconds
-                
-                for attempt in range(max_retries):
-                    try:
-                        resp = self._model_image.generate_content(parts, generation_config={"max_output_tokens": int(max_tokens)})
-                        break  # Success, exit retry loop
-                    except Exception as api_error:
-                        error_str = str(api_error).lower()
-                        
-                        # Check for transient errors (500, 503, rate limit)
-                        is_transient = any(x in error_str for x in ['500', '503', 'internal', 'overloaded', 'rate limit', 'quota'])
-                        
-                        if is_transient and attempt < max_retries - 1:
-                            logging.warning(f"Transient API error (attempt {attempt + 1}/{max_retries}): {api_error}")
-                            logging.warning(f"Retrying in {retry_delay} seconds...")
-                            time.sleep(retry_delay)
-                            retry_delay *= 2  # Exponential backoff
-                            continue
-                        
-                        # If image model API call fails, fallback to text model with text-only input
-                        if "image" in error_str or "multimodal" in error_str:
-                            logging.warning(f"Image model API call failed: {api_error}")
-                            logging.warning(f"Falling back to text-only model {self.model_id_text}")
-                            if self._model_text is None:
-                                self._model_text = genai.GenerativeModel(self.model_id_text)
-                            # Extract text part only for fallback
-                            text_part = parts[0] if parts else ""
-                            resp = self._model_text.generate_content(text_part, generation_config={"max_output_tokens": int(max_tokens)})
-                            break
-                        else:
-                            raise
-                # Check if response has valid candidates with parts
-                if resp.candidates and len(resp.candidates) > 0:
-                    candidate = resp.candidates[0]
-                    # Check finish_reason - 2 means BLOCKED
-                    if hasattr(candidate, 'finish_reason') and candidate.finish_reason == 2:
-                        raise ValueError(f"Gemini response was blocked (finish_reason=2). This may indicate content filtering or safety restrictions.")
-                    # Check if candidate has parts
-                    if hasattr(candidate, 'content') and candidate.content and hasattr(candidate.content, 'parts'):
-                        if len(candidate.content.parts) > 0:
-                            return candidate.content.parts[0].text
-                # Fallback: try the text property, but handle errors gracefully
-                try:
-                    return resp.text
-                except ValueError as e:
-                    if "finish_reason" in str(e) or "Part" in str(e):
-                        raise ValueError(f"Gemini response has no valid content. finish_reason may indicate blocking or filtering.")
-                    raise
-
-            elif self.provider == "openai":
+            self._throttle()
+            if self.provider == "openai":
                 resp = self.client.chat.completions.create(
                     model=self.model_id,
                     messages=[
@@ -357,6 +146,26 @@ class LLMClient:
                     max_tokens=max_tokens,
                 )
                 return resp.choices[0].message.content
+            elif self.provider == "qwen":
+                if not parts:
+                    raise ValueError("Multimodal request requires at least one text part.")
+                text_part = str(parts[0])
+                content_parts: List[Dict[str, Any]] = [{"type": "text", "text": text_part}]
+                for p in parts[1:]:
+                    if hasattr(p, "save"):  # PIL image-like object
+                        from io import BytesIO
+                        buf = BytesIO()
+                        p.save(buf, format="PNG")
+                        encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
+                        content_parts.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded}"}})
+                    elif isinstance(p, str):
+                        content_parts.append({"type": "image_url", "image_url": {"url": p}})
+                resp = self.client.chat.completions.create(
+                    model=self.model_id_image,
+                    messages=[{"role": "user", "content": content_parts}],
+                    max_tokens=max_tokens,
+                )
+                return resp.choices[0].message.content or ""
 
             elif self.provider == "anthropic":
                 raise NotImplementedError("Anthropic does not yet support multimodal input in this wrapper.")
@@ -1998,8 +1807,6 @@ def llm_guess_peaks_from_image(
     system_prompt: Optional[str] = None,
     max_tokens: int = 500,
 ) -> PeakResult:
-    if genai is None:
-        raise RuntimeError("google-generativeai is required for image analysis.")
     if not _HAS_PIL:
         raise RuntimeError("Pillow is required to load images.")
 
@@ -2564,16 +2371,26 @@ class CurveFitting:
         """
         end = end_row if end_row is not None else len(data)
 
+        def _row_is_empty(row: pd.Series) -> bool:
+            """Treat NaN/None/blank-string rows as empty."""
+            for v in row.values:
+                if pd.isna(v):
+                    continue
+                s = str(v).strip()
+                if s and s.lower() not in {"nan", "none"}:
+                    return False
+            return True
+
         # Pandas often skips blank lines; find the first non-empty row after the "Read N:" header.
         hdr_row = start_row + 1
-        while hdr_row < end and data.iloc[hdr_row].isna().all():
+        while hdr_row < end and _row_is_empty(data.iloc[hdr_row]):
             hdr_row += 1
         block_full = data.iloc[hdr_row:end].copy()
         
         # Find the first row that is entirely empty or NaNs
         # This stops the block before it hits summary tables at the end of the file
         # BUT: Don't filter out the header row! Check if first row is header before filtering
-        empty_rows = block_full.isnull().all(axis=1)
+        empty_rows = block_full.apply(_row_is_empty, axis=1)
         
         # Check if first row looks like a header (contains "Placeholder" or "Wavelength")
         first_row_check = block_full.iloc[0] if len(block_full) > 0 else None
@@ -3004,6 +2821,27 @@ class CurveFitting:
         sel_blocks = self.select_reads(all_blocks, self.cfg.read_selection)
         if not sel_blocks:
             raise ValueError("No reads selected; check read_selection.")
+        # Drop read blocks that contain no usable numeric data (can happen with malformed separators).
+        usable_blocks: Dict[int, pd.DataFrame] = {}
+        for read_num, block in sel_blocks.items():
+            if block is None or block.empty:
+                continue
+            numeric_block = block.apply(pd.to_numeric, errors="coerce")
+            if numeric_block.notna().sum().sum() == 0:
+                continue
+            usable_blocks[read_num] = block
+        if not usable_blocks:
+            # Fallback: if selection filtered everything unusable, try all reads.
+            for read_num, block in all_blocks.items():
+                if block is None or block.empty:
+                    continue
+                numeric_block = block.apply(pd.to_numeric, errors="coerce")
+                if numeric_block.notna().sum().sum() == 0:
+                    continue
+                usable_blocks[read_num] = block
+        if not usable_blocks:
+            raise ValueError("All read blocks are empty after parsing. Check file format and read headers.")
+        sel_blocks = usable_blocks
         sel_blocks = self.drop_wells(sel_blocks, self.cfg.wells_to_ignore)
         tensor, wavelengths, wells, reads, read_wavelengths = self.stack_blocks(sel_blocks)
 

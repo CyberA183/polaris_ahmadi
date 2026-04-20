@@ -1,7 +1,9 @@
 from typing import Dict, Any
+import os
 
 import streamlit as st
 from agents.base import BaseAgent
+from tools.mcp_orchestrator_bridge import sync_hypothesis_outcome, sync_hypothesis_proposal
 from tools.memory import MemoryManager
 
 # Lazy import socratic module - only import when needed
@@ -31,11 +33,18 @@ class HypothesisAgent(BaseAgent):
         try:
             # Lazy import socratic module
             socratic = _lazy_import_socratic()
-            
-            if not self.memory.get_var("api_key"):
+
+            resolved_api_key = (
+                self.memory.get_var("api_key")
+                or os.getenv("HUGGINGFACE_API_KEY")
+                or os.getenv("HF_API_KEY")
+                or os.getenv("LLM_API_KEY")
+                or os.getenv("DASHSCOPE_API_KEY")
+            )
+
+            if not resolved_api_key:
                 st.warning("Please enter your API key in Settings before continuing.")
-                st.info("**Make sure you're using a Google Gemini API key, not an OpenAI key.**")
-                st.info("Get your Gemini API key from: https://makersuite.google.com/app/apikey")
+                st.info("Get your Hugging Face API key from: https://huggingface.co/settings/tokens")
                 st.stop()
 
             # Validate question input
@@ -57,11 +66,11 @@ class HypothesisAgent(BaseAgent):
             if not clarified_question or not clarified_question.strip():
                 st.error("Could not generate clarified question. The LLM returned an empty response.")
                 st.warning("**Possible causes:**")
-                st.warning("1. Invalid or expired Google Gemini API key")
-                st.warning("2. Using OpenAI API key instead of Gemini key")
+                st.warning("1. Invalid or expired Hugging Face API key")
+                st.warning("2. Using the wrong provider key for Qwen")
+                st.info("Get your Hugging Face API key from: https://huggingface.co/settings/tokens")
                 st.warning("3. API quota exceeded")
                 st.warning("4. Network connectivity issues")
-                st.info("Get your Gemini API key from: https://makersuite.google.com/app/apikey")
                 st.stop()
 
             # Generate socratic questions
@@ -282,6 +291,7 @@ class HypothesisAgent(BaseAgent):
 
             self.memory.insert_interaction("assistant", hypothesis, "hypothesis", "hypothesis")
             memory.last_hypothesis = hypothesis
+            sync_hypothesis_proposal(self.memory, hypothesis, source="hypothesis_agent_forced")
             memory.set_var("hypothesis_ready", True)
             memory.set_var("stop_hypothesis", False)
             memory.set_var("stage", "analysis")
@@ -654,6 +664,7 @@ class HypothesisAgent(BaseAgent):
 
                 self.memory.insert_interaction("assistant", hypothesis, "hypothesis", "hypothesis")
                 memory.last_hypothesis = hypothesis
+                sync_hypothesis_proposal(self.memory, hypothesis, source="hypothesis_agent")
                 memory.set_var("hypothesis_ready", True)
                 memory.set_var("stage", "analysis")
                 st.rerun()
@@ -714,6 +725,19 @@ class HypothesisAgent(BaseAgent):
                             research_question=socratic_question or "",
                             analysis_summary=reason[:2000] if reason else "Manually marked as rejected.",
                         )
+                        self.memory.add_hypothesis_outcome(
+                            hypothesis_text=hypothesis[:4000],
+                            status="rejected",
+                            evidence_summary=reason[:2000] if reason else "Manually marked as rejected.",
+                            source="hypothesis_agent_manual",
+                        )
+                        sync_hypothesis_outcome(
+                            self.memory,
+                            hypothesis_text=hypothesis[:4000],
+                            status="rejected",
+                            evidence_summary=reason[:2000] if reason else "Manually marked as rejected.",
+                            source="hypothesis_agent_manual",
+                        )
                         st.success("Saved. The model will learn from this.")
                         st.rerun()
                 with col_b:
@@ -723,6 +747,19 @@ class HypothesisAgent(BaseAgent):
                             status="needs_revision",
                             research_question=socratic_question or "",
                             analysis_summary=reason[:2000] if reason else "Manually marked as needs revision.",
+                        )
+                        self.memory.add_hypothesis_outcome(
+                            hypothesis_text=hypothesis[:4000],
+                            status="needs_revision",
+                            evidence_summary=reason[:2000] if reason else "Manually marked as needs revision.",
+                            source="hypothesis_agent_manual",
+                        )
+                        sync_hypothesis_outcome(
+                            self.memory,
+                            hypothesis_text=hypothesis[:4000],
+                            status="needs_revision",
+                            evidence_summary=reason[:2000] if reason else "Manually marked as needs revision.",
+                            source="hypothesis_agent_manual",
                         )
                         st.success("Saved. The model will learn from this.")
                         st.rerun()
